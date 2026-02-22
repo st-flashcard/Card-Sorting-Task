@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (直接クリック・メーター完全削除 修正版)
+Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版)
 """
 
 import streamlit as st
@@ -65,7 +65,7 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
 
     max_w = "60px" if size == "small" else "110px"
     
-    return f'<svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg>'
+    return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:4px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
 
 # ─────────────────────────────────────────
 # 初期化
@@ -249,10 +249,10 @@ def show_test():
         with col:
             svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
             
-            # CSSで指定した高さ（120px）のカードを描画
+            # カードを描画
             st.markdown(f'<div class="ref-card">{svg_html}</div>', unsafe_allow_html=True)
             
-            # このボタンがCSSで透明化され、上のカードの領域（120px）に完全に被さります
+            # このボタンがCSSの力で強制的にカードの上に覆いかぶさります
             st.button(
                 " ", # 空白
                 key=f"btn_{trial}_{i}",
@@ -269,8 +269,6 @@ def show_test():
     with tc_col:
         svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
         st.markdown(f'<div style="height:160px; background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; display:flex; justify-content:center; align-items:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
-
-    # ※進捗メーター（試行回数など）は完全に削除しました。
 
 
 # ─────────────────────────────────────────
@@ -364,7 +362,7 @@ def show_results():
         data=csv,
         file_name=f"cst_result_{p or 'patient'}.csv",
         mime="text/csv",
-        type="primary"  # CSSの透明化ハックを回避するためにprimaryを指定
+        type="primary"  # CSSハックの影響を受けないように指定
     )
 
     st.markdown("---")
@@ -400,7 +398,7 @@ def main():
     /* 全体のダークテーマ */
     .stApp { background-color: #0f172a; color: #e2e8f0; }
 
-    /* primaryボタン（スタート・リセット等）のデザイン */
+    /* primaryボタン（スタート・リセット等の青いボタン）のデザイン */
     button[kind="primary"] {
         background-color: #1e40af !important;
         color: white !important;
@@ -417,15 +415,10 @@ def main():
     }
 
     /* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-       【カード直接クリックを実現する完全版CSS】
+       【改良版】カード直接クリックを実現する、絶対にズレないハック
        ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */
     
-    /* 1. 基準カードの入っているカラムを配置の基準にする */
-    div[data-testid="column"] {
-        position: relative !important;
-    }
-    
-    /* 2. 基準カード自体のデザイン（高さ120pxに固定） */
+    /* 1. 基準カードのデザイン（高さを120pxに完全固定） */
     .ref-card {
         height: 120px;
         background: #f8fafc;
@@ -435,31 +428,22 @@ def main():
         justify-content: center;
         align-items: center;
         transition: all 0.2s ease;
+        position: relative;
+        z-index: 1;
     }
     
-    /* 3. 透明ボタンのコンテナを、カラムの左上に絶対配置で被せる */
-    div.element-container:has(button[kind="secondary"]) {
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100% !important;
-        height: 120px !important; /* カードと高さを完全に一致させる */
-        z-index: 999 !important;
-    }
-    
-    /* 4. ボタン本体を完全に透明化する */
+    /* 2. 透明ボタンを強制的に「カードの上」に引っ張り上げる */
     button[kind="secondary"] {
+        height: 135px !important;       /* カードより少し大きめにして隙間をカバー */
         width: 100% !important;
-        height: 100% !important;
-        opacity: 0 !important;
+        margin-top: -135px !important;  /* 強制的にカードの高さ分だけ上に引っ張り上げる */
+        opacity: 0 !important;          /* 完全に透明化 */
+        z-index: 999 !important;        /* 一番手前（画面側）に出す */
         cursor: pointer !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        background: transparent !important;
-        border: none !important;
+        display: block !important;
     }
 
-    /* 5. マウスを乗せた時のエフェクト（透明ボタンの下にあるカードを光らせる） */
+    /* 3. マウスを乗せた時のエフェクト（透明ボタンの奥にあるカードを光らせる） */
     div[data-testid="column"]:hover .ref-card {
         border-color: #60a5fa !important;
         box-shadow: 0 0 15px rgba(96,165,250,0.6) !important;
