@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (1画面収まり・UI非表示 完全版)
+Streamlit版 臨床評価ツール (直接クリック・メーター非表示 完全版)
 """
 
 import streamlit as st
@@ -63,7 +63,6 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     for x, y in positions:
         items += f'<g transform="translate({x}, {y})">{shape_svg}</g>'
 
-    # サイズを少し小さめに調整して1画面に収める
     max_w = "60px" if size == "small" else "110px"
     
     return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:4px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
@@ -228,13 +227,11 @@ def show_start():
                 st.rerun()
 
 # ─────────────────────────────────────────
-# 画面②：テスト実施画面 (スクロール・UI最適化)
+# 画面②：テスト実施画面
 # ─────────────────────────────────────────
 def show_test():
     target = st.session_state["target_card"]
     trial  = st.session_state["trial_num"]
-    cats   = st.session_state["categories_achieved"]
-    consec = st.session_state["consecutive_correct"]
 
     # フィードバック表示（領域を最小化）
     fb = st.session_state.get("feedback")
@@ -243,17 +240,20 @@ def show_test():
     elif fb == "incorrect":
         st.markdown('<div style="background-color:rgba(239,68,68,0.2); color:#f87171; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">❌ 不正解</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True) # レイアウト保持用の空白
+        st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
-    # ── 基準カードと選択ボタン ─────────
+    # ── 基準カード（透明ボタン被せ） ─────────
+    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold;'>【基準カード】</p>", unsafe_allow_html=True)
     ref_cols = st.columns(4)
     for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
         with col:
             svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-            st.markdown(f'<div style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:8px; padding:6px; text-align:center; margin-bottom:8px;">{svg_html}</div>', unsafe_allow_html=True)
+            # ref-card というクラスをつけて、ホバー時に光るようにします
+            st.markdown(f'<div class="ref-card" style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:8px; padding:10px; text-align:center;">{svg_html}</div>', unsafe_allow_html=True)
             
+            # CSSで透明化され、上のカードの領域を完全に覆うボタン
             st.button(
-                f"ここに入れる",
+                f"btn_{i}", # 見えないので適当な文字
                 key=f"btn_{trial}_{i}",
                 on_click=on_card_selected,
                 args=(i,),
@@ -263,13 +263,13 @@ def show_test():
     st.markdown("<hr style='border-color:#334155; margin:15px 0;'>", unsafe_allow_html=True)
 
     # ── ターゲットカード ─────────────────
+    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】<br><span style='font-size:0.8rem; font-weight:normal; color:#94a3b8;'>上の基準カードを直接タップしてください</span></p>", unsafe_allow_html=True)
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
         svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
         st.markdown(f'<div style="background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; padding:15px; text-align:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
 
-    # 進捗メーター（一番下にひっそり配置）
-    st.markdown(f"<p style='text-align:center; color:#64748b; font-size:0.8rem; margin-top:15px;'>試行: {trial + 1}/{MAX_TRIALS} ｜ 達成: {cats}/{MAX_CATEGORIES} ｜ 連続正解: {consec}/{REQUIRED_CORRECT}</p>", unsafe_allow_html=True)
+    # 進捗メーターは完全に削除しました。
 
 
 # ─────────────────────────────────────────
@@ -361,7 +361,8 @@ def show_results():
     st.download_button(label="📥 結果をCSVでダウンロード", data=csv, file_name=f"cst_result_{p or 'patient'}.csv", mime="text/csv")
 
     st.markdown("---")
-    if st.button("🔄 テストをリセットして最初から", type="secondary"):
+    # ここを type="primary" にすることで透明化CSSの対象外にしています
+    if st.button("🔄 テストをリセットして最初から", type="primary", use_container_width=True):
         reset_test()
         st.rerun()
 
@@ -376,24 +377,21 @@ def main():
         initial_sidebar_state="collapsed",
     )
 
-    # UI非表示＆余白圧縮のための強力なCSS
     st.markdown("""
     <style>
-    /* 1. ヘッダー（GitHubロゴやメニューバー）を消す */
+    /* 1. ヘッダーとフッターを消す */
     header {visibility: hidden !important;}
     #MainMenu {visibility: hidden !important;}
-    
-    /* 2. フッター（Made with Streamlit）を消す */
     footer {visibility: hidden !important;}
     
-    /* 3. 上部の巨大な余白を削る（スクロール対策） */
+    /* 2. 余白を削る */
     .block-container {
         padding-top: 1rem !important;
         padding-bottom: 1rem !important;
         max-width: 800px;
     }
 
-    /* 全体のダークテーマとボタンのデザイン */
+    /* 3. 全体のダークテーマと基本ボタンデザイン */
     .stApp { background-color: #0f172a; color: #e2e8f0; }
     .stButton > button {
         background-color: #1e40af;
@@ -414,6 +412,43 @@ def main():
         border: 1px solid #334155;
         border-radius: 10px;
         padding: 8px;
+    }
+
+    /* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+       【カード直接クリックを実現する魔法のCSS】
+       基準カードが入っているカラムに相対位置を指定し、
+       その中にあるボタン（Secondary）を絶対位置で透明にして全面に被せます。
+       ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */
+    
+    div[data-testid="column"] {
+        position: relative;
+    }
+    
+    button[kind="secondary"] {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        opacity: 0 !important;
+        z-index: 99 !important;
+        cursor: pointer !important;
+    }
+
+    /* カードにカーソルを合わせたときに少し浮き上がるアニメーション */
+    div[data-testid="column"]:hover .ref-card {
+        border-color: #60a5fa !important;
+        box-shadow: 0 0 15px rgba(96,165,250,0.6) !important;
+        transform: translateY(-3px);
+    }
+    .ref-card {
+        transition: all 0.2s ease;
+    }
+    
+    /* 透明なボタンが下部で無駄なスペースを取らないようにする */
+    div:has(> button[kind="secondary"]) {
+        margin: 0 !important;
+        padding: 0 !important;
     }
     </style>
     """, unsafe_allow_html=True)
