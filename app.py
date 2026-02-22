@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版・権利クリア)
+Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版・アクセス制限機能付き)
 """
 
 import streamlit as st
@@ -30,6 +30,8 @@ REFERENCE_CARDS = [
     {"color": "黄",  "shape": "十字", "number": "3"},
     {"color": "青",  "shape": "丸",   "number": "4"},
 ]
+
+BLOG_URL = "https://dementia-stroke-st.blogspot.com/"
 
 # ─────────────────────────────────────────
 # 図形（SVG）描画ジェネレーター
@@ -243,16 +245,15 @@ def show_test():
     else:
         st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
-    # ── 隠しボタン（JavaScriptがクリックするためのStreamlitボタン） ──
+    # ── 隠しボタン ──
     hcols = st.columns(4)
     for i, col in enumerate(hcols):
         with col:
-            # ★変更箇所：ボタンのラベルを「CST_CARD_」に変更
             if st.button(f"CST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
                 on_card_selected(i)
                 st.rerun()
 
-    # ── 基準カード（components.htmlでリッチ描画 → クリックでJS発火） ──
+    # ── 基準カード ──
     st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
 
     cards_html_parts = []
@@ -284,7 +285,6 @@ def show_test():
     <div class="cards-row">{''.join(cards_html_parts)}</div>
     <script>
       function selectCard(i) {{
-        // ★変更箇所：呼び出すラベルも「CST_CARD_」に変更
         var label = 'CST_CARD_' + i;
         var buttons = window.parent.document.querySelectorAll('button');
         for (var j = 0; j < buttons.length; j++) {{
@@ -398,13 +398,45 @@ def show_results():
         data=csv,
         file_name=f"cst_result_{p or 'patient'}.csv",
         mime="text/csv",
-        type="primary"  # CSSハックの影響を受けないように指定
+        type="primary" 
     )
 
     st.markdown("---")
     if st.button("🔄 テストをリセットして最初から", type="primary", use_container_width=True):
         reset_test()
         st.rerun()
+
+# ─────────────────────────────────────────
+# ブロック画面（ブログ経由以外のアクセスを弾く）
+# ─────────────────────────────────────────
+def show_block_screen():
+    # 以前のツールのデザインを再現したHTML/CSS
+    html_content = f"""
+    <div style="min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <div style="background-color: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 500px; width: 100%; text-align: center; border: 4px solid #ffedd5;">
+            <div style="font-size: 60px; margin-bottom: 20px; animation: bounce 2s infinite;">🏠</div>
+            <h1 style="color: #1f2937; font-size: 1.5rem; font-weight: bold; margin-bottom: 15px; line-height: 1.4;">
+                こんにちは！<br/>
+                <span style="color: #4f46e5; font-size: 1.2rem;">認知症・脳卒中の『困った』を支える<br/>STによる食事と脳の相談室</span>です
+            </h1>
+            <p style="color: #4b5563; margin-bottom: 30px; line-height: 1.6;">
+                アクセスありがとうございます。<br/>
+                このツールは、ブログ読者様限定で公開しています。
+            </p>
+            <a href="{BLOG_URL}" style="display: block; width: 100%; background: linear-gradient(to right, #6366f1, #9333ea); color: white; font-weight: bold; padding: 15px 20px; border-radius: 9999px; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.3s;">
+                ブログの記事に戻る
+            </a>
+        </div>
+    </div>
+    <style>
+        @keyframes bounce {{
+            0%, 100% {{ transform: translateY(-5%); animation-timing-function: cubic-bezier(0.8,0,1,1); }}
+            50% {{ transform: none; animation-timing-function: cubic-bezier(0,0,0.2,1); }}
+        }}
+    </style>
+    """
+    st.markdown(html_content, unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────
 # メイン
@@ -416,6 +448,14 @@ def main():
         layout="centered",
         initial_sidebar_state="collapsed",
     )
+
+    # アクセス制限チェック
+    # URLの末尾に「?from=blog」がついていない場合はブロック画面を表示して終了する
+    if st.query_params.get("from") != "blog":
+        # Streamlitのヘッダー・フッターを消して綺麗なブロック画面にする
+        st.markdown("<style>header {visibility: hidden;} footer {visibility: hidden;}</style>", unsafe_allow_html=True)
+        show_block_screen()
+        return
 
     st.markdown("""
     <style>
@@ -450,7 +490,7 @@ def main():
         border-color: #60a5fa !important;
     }
 
-    /* ＝＝ 隠しボタン（CST_CARD_0〜3）を画面外へ追い出す ＝＝ */
+    /* 隠しボタンを画面外へ */
     button[kind="secondary"] {
         position: fixed !important;
         top: -9999px !important;
