@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (SVG図形描画対応)
+Streamlit版 臨床評価ツール (SVG図形描画 完全版)
 """
 
 import streamlit as st
@@ -41,7 +41,6 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     color_map = {"赤": "#ef4444", "緑": "#22c55e", "黄": "#eab308", "青": "#3b82f6"}
     c = color_map.get(color_name, "#ffffff")
     
-    # 基本となる1つの図形（80x80サイズ）
     if shape_name == "丸":
         shape_svg = f'<circle cx="40" cy="40" r="35" fill="{c}"/>'
     elif shape_name == "三角":
@@ -53,7 +52,6 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     else:
         shape_svg = ""
 
-    # 配置座標（200x200のキャンバス内）
     positions = []
     n = int(number_str)
     if n == 1:
@@ -65,21 +63,14 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     elif n == 4:
         positions = [(15, 15), (105, 15), (15, 105), (105, 105)]
 
-    # 複数個の図形を配置
     items = ""
     for x, y in positions:
         items += f'<g transform="translate({x}, {y})">{shape_svg}</g>'
 
-    # サイズ調整
     max_w = "80px" if size == "small" else ("160px" if size == "large" else "120px")
     
-    return f'''
-    <div style="display: flex; justify-content: center; align-items: center; width: 100%; margin: 10px 0;">
-        <svg viewBox="0 0 200 200" style="width: 100%; max-width: {max_w}; height: auto;">
-            {items}
-        </svg>
-    </div>
-    '''
+    # バグ防止のため、改行を含めない1行のHTML文字列として返す
+    return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:10px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
 
 # ─────────────────────────────────────────
 # 初期化
@@ -266,47 +257,33 @@ def show_test():
     elif fb == "incorrect":
         st.error("❌ 不正解")
 
-    # ── 刺激カード（基準4枚）表示 ─────────
-    st.markdown(
-        "<p style='text-align:center; color:#94a3b8; font-size:0.9rem;'>【基準カード】</p>",
-        unsafe_allow_html=True
-    )
+    # ── 刺激カード（基準4枚）表示（上部） ─────────
+    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:0.9rem;'>【基準カード】</p>", unsafe_allow_html=True)
     ref_cols = st.columns(4)
     for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
         with col:
             svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-            st.markdown(f"""
-            <div style="background:#f8fafc; border:2px solid #cbd5e1;
-                        border-radius:12px; padding:10px; text-align:center; height:100%;">
-              {svg_html}
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f'<div style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:12px; padding:10px; text-align:center;">{svg_html}</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── ターゲットカード ─────────────────
-    st.markdown(
-        "<p style='text-align:center; color:#fbbf24; font-size:0.9rem; font-weight:bold;'>【分類するカード】</p>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:0.9rem; font-weight:bold;'>【分類するカード】</p>", unsafe_allow_html=True)
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
         svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
-        st.markdown(f"""
-        <div style="background:#f8fafc; border:4px solid #fbbf24;
-                    border-radius:16px; padding:20px; text-align:center;
-                    box-shadow:0 0 20px rgba(251,191,36,0.3);">
-          {svg_html}
-        </div>""", unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#f8fafc; border:4px solid #fbbf24; border-radius:16px; padding:20px; text-align:center; box-shadow:0 0 20px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
 
-    st.markdown(
-        "<p style='text-align:center; color:#94a3b8; margin-top:20px;'>どの基準カードと同じグループですか？<br>下のボタンを選んでください。</p>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<p style='text-align:center; color:#94a3b8; margin-top:20px;'>どの基準カードと同じグループですか？<br>下のボタンを選んでください。</p>", unsafe_allow_html=True)
 
-    # ── 選択ボタン ───────────────────────
+    # ── 選択ボタンと下の基準カード ───────────────────────
     btn_cols = st.columns(4)
-    for i, col in enumerate(btn_cols):
+    for i, (col, card) in enumerate(zip(btn_cols, REFERENCE_CARDS)):
         with col:
+            # ここで下のカードを復活させています！
+            svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
+            st.markdown(f'<div style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:12px; padding:10px; text-align:center; margin-bottom:8px;">{svg_html}</div>', unsafe_allow_html=True)
+            
             st.button(
                 f"カード {i+1}",
                 key=f"btn_{trial}_{i}",
