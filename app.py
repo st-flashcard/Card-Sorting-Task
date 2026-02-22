@@ -252,9 +252,10 @@ def show_test():
             # カードを描画
             st.markdown(f'<div class="ref-card">{svg_html}</div>', unsafe_allow_html=True)
             
-            # このボタンがCSSの力で強制的にカードの上に覆いかぶさります
+            # カードの下に選択ボタンを配置（シンプルで確実な方式）
+            card = REFERENCE_CARDS[i]
             st.button(
-                " ", # 空白
+                f"▲ カード{i+1}を選ぶ",
                 key=f"btn_{trial}_{i}",
                 on_click=on_card_selected,
                 args=(i,),
@@ -414,11 +415,7 @@ def main():
         border-color: #60a5fa !important;
     }
 
-    /* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-       【改良版】カード直接クリックを実現する、絶対にズレないハック
-       ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */
-    
-    /* 1. 基準カードのデザイン（高さを120pxに完全固定） */
+    /* 基準カードのデザイン */
     .ref-card {
         height: 120px;
         background: #f8fafc;
@@ -427,27 +424,25 @@ def main():
         display: flex;
         justify-content: center;
         align-items: center;
-        transition: all 0.2s ease;
-        position: relative;
-        z-index: 1;
-    }
-    
-    /* 2. 透明ボタンを強制的に「カードの上」に引っ張り上げる */
-    button[kind="secondary"] {
-        height: 135px !important;       /* カードより少し大きめにして隙間をカバー */
-        width: 100% !important;
-        margin-top: -135px !important;  /* 強制的にカードの高さ分だけ上に引っ張り上げる */
-        opacity: 0 !important;          /* 完全に透明化 */
-        z-index: 999 !important;        /* 一番手前（画面側）に出す */
-        cursor: pointer !important;
-        display: block !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        margin-bottom: 6px;
     }
 
-    /* 3. マウスを乗せた時のエフェクト（透明ボタンの奥にあるカードを光らせる） */
-    div[data-testid="column"]:hover .ref-card {
+    /* 選択ボタンのデザイン（secondaryボタンを見やすく） */
+    button[kind="secondary"] {
+        background-color: #1e293b !important;
+        color: #93c5fd !important;
+        border: 1px solid #3b82f6 !important;
+        border-radius: 8px !important;
+        font-size: 0.85rem !important;
+        font-weight: bold !important;
+        cursor: pointer !important;
+        transition: background-color 0.15s, border-color 0.15s !important;
+    }
+    button[kind="secondary"]:hover {
+        background-color: #2563eb !important;
         border-color: #60a5fa !important;
-        box-shadow: 0 0 15px rgba(96,165,250,0.6) !important;
-        transform: translateY(-3px);
+        color: #ffffff !important;
     }
     </style>
     """, unsafe_allow_html=True)
