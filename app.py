@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版)
+Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版・権利クリア)
 """
 
 import streamlit as st
@@ -244,11 +244,11 @@ def show_test():
         st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
     # ── 隠しボタン（JavaScriptがクリックするためのStreamlitボタン） ──
-    # CSSで画面外へ飛ばすが、DOMには存在してJS経由でクリック可能
     hcols = st.columns(4)
     for i, col in enumerate(hcols):
         with col:
-            if st.button(f"WCST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
+            # ★変更箇所：ボタンのラベルを「CST_CARD_」に変更
+            if st.button(f"CST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
                 on_card_selected(i)
                 st.rerun()
 
@@ -284,7 +284,8 @@ def show_test():
     <div class="cards-row">{''.join(cards_html_parts)}</div>
     <script>
       function selectCard(i) {{
-        var label = 'WCST_CARD_' + i;
+        // ★変更箇所：呼び出すラベルも「CST_CARD_」に変更
+        var label = 'CST_CARD_' + i;
         var buttons = window.parent.document.querySelectorAll('button');
         for (var j = 0; j < buttons.length; j++) {{
           if (buttons[j].innerText.trim() === label) {{
@@ -449,8 +450,7 @@ def main():
         border-color: #60a5fa !important;
     }
 
-    /* ＝＝ 隠しボタン（WCST_CARD_0〜3）を画面外へ追い出す ＝＝
-       DOMには残るのでJavaScriptから.click()は可能 */
+    /* ＝＝ 隠しボタン（CST_CARD_0〜3）を画面外へ追い出す ＝＝ */
     button[kind="secondary"] {
         position: fixed !important;
         top: -9999px !important;
@@ -458,7 +458,7 @@ def main():
         width: 1px !important;
         height: 1px !important;
         overflow: hidden !important;
-        opacity: 0.001 !important;   /* 0にするとブラウザ依存でclick()無効になる場合があるため0.001 */
+        opacity: 0.001 !important; 
     }
     </style>
     """, unsafe_allow_html=True)
