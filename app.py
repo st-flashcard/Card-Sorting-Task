@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール
+Streamlit版 臨床評価ツール (SVG図形描画対応)
 """
 
 import streamlit as st
@@ -20,8 +20,6 @@ COLORS  = ["赤", "緑", "黄", "青"]
 SHAPES  = ["三角", "星", "十字", "丸"]
 NUMBERS = ["1", "2", "3", "4"]
 
-COLOR_EMOJI  = {"赤": "🔴", "緑": "🟢", "黄": "🟡", "青": "🔵"}
-SHAPE_EMOJI  = {"三角": "▲", "星": "★", "十字": "✚", "丸": "●"}
 RULE_LABEL   = {"color": "色", "shape": "形", "number": "数"}
 RULE_ORDER   = ["color", "shape", "number", "color", "shape", "number"]
 
@@ -36,6 +34,54 @@ REFERENCE_CARDS = [
 ]
 
 # ─────────────────────────────────────────
+# 図形（SVG）描画ジェネレーター
+# ─────────────────────────────────────────
+def generate_card_svg(color_name, shape_name, number_str, size="normal"):
+    """色・形・数を受け取り、SVG画像（HTML文字列）を生成する"""
+    color_map = {"赤": "#ef4444", "緑": "#22c55e", "黄": "#eab308", "青": "#3b82f6"}
+    c = color_map.get(color_name, "#ffffff")
+    
+    # 基本となる1つの図形（80x80サイズ）
+    if shape_name == "丸":
+        shape_svg = f'<circle cx="40" cy="40" r="35" fill="{c}"/>'
+    elif shape_name == "三角":
+        shape_svg = f'<polygon points="40,5 75,75 5,75" fill="{c}"/>'
+    elif shape_name == "十字":
+        shape_svg = f'<polygon points="25,5 55,5 55,25 75,25 75,55 55,55 55,75 25,75 25,55 5,55 5,25 25,25" fill="{c}"/>'
+    elif shape_name == "星":
+        shape_svg = f'<polygon points="40,2 52,27 79,31 59,50 65,77 40,63 15,77 21,50 1,31 28,27" fill="{c}"/>'
+    else:
+        shape_svg = ""
+
+    # 配置座標（200x200のキャンバス内）
+    positions = []
+    n = int(number_str)
+    if n == 1:
+        positions = [(60, 60)]
+    elif n == 2:
+        positions = [(60, 10), (60, 110)]
+    elif n == 3:
+        positions = [(60, 10), (10, 110), (110, 110)]
+    elif n == 4:
+        positions = [(15, 15), (105, 15), (15, 105), (105, 105)]
+
+    # 複数個の図形を配置
+    items = ""
+    for x, y in positions:
+        items += f'<g transform="translate({x}, {y})">{shape_svg}</g>'
+
+    # サイズ調整
+    max_w = "80px" if size == "small" else ("160px" if size == "large" else "120px")
+    
+    return f'''
+    <div style="display: flex; justify-content: center; align-items: center; width: 100%; margin: 10px 0;">
+        <svg viewBox="0 0 200 200" style="width: 100%; max-width: {max_w}; height: auto;">
+            {items}
+        </svg>
+    </div>
+    '''
+
+# ─────────────────────────────────────────
 # 初期化
 # ─────────────────────────────────────────
 def init_state():
@@ -48,9 +94,9 @@ def init_state():
         "consecutive_correct": 0,
         "categories_achieved": 0,
         "target_card": None,
-        "feedback": None,          # "correct" | "incorrect" | None
-        "prev_wrong_dimension": None,  # ネルソン型判定用
-        "prev_correct_rule": None,     # ミルナー型判定用（ルール変更直後のみ有効）
+        "feedback": None,
+        "prev_wrong_dimension": None,
+        "prev_correct_rule": None,
         "rule_just_changed": False,
         "patient_name": "",
         "examiner_name": "",
@@ -86,39 +132,27 @@ def reset_test():
 # カード選択時の処理
 # ─────────────────────────────────────────
 def on_card_selected(ref_index: int):
-    """対象者がカードを選んだときに呼ばれる"""
     target  = st.session_state["target_card"]
     chosen  = REFERENCE_CARDS[ref_index]
     rule    = current_rule()
-
-    # 正誤判定
     is_correct = target[rule] == chosen[rule]
 
-    # ── エラー種別判定 ──────────────────
     error_type = None
     chosen_dimension = _match_dimension(target, chosen)
 
     if not is_correct:
-        # ミルナー型：ルール変更直後で、前の正解ルールで選んでいる
         if (st.session_state["rule_just_changed"]
                 and chosen_dimension == st.session_state["prev_correct_rule"]):
             error_type = "milner"
-
-        # ネルソン型：前回の間違えた次元と同じ次元で今回も間違えた
         elif (st.session_state["prev_wrong_dimension"] is not None
               and chosen_dimension == st.session_state["prev_wrong_dimension"]
               and chosen_dimension != rule):
             error_type = "nelson"
-
-        # セット維持困難：連続正解中（3回以上）に急に崩れた
         elif st.session_state["consecutive_correct"] >= 3:
             error_type = "failure_to_maintain"
-
-        # それ以外：非保続性エラー
         else:
             error_type = "other"
 
-    # ── ログ記録 ────────────────────────
     log_entry = {
         "試行":          st.session_state["trial_num"] + 1,
         "ターゲット_色":  target["color"],
@@ -135,7 +169,6 @@ def on_card_selected(ref_index: int):
     }
     st.session_state["logs"].append(log_entry)
 
-    # ── 連続正解・カテゴリー管理 ─────────
     if is_correct:
         st.session_state["consecutive_correct"] += 1
         st.session_state["prev_wrong_dimension"] = None
@@ -144,7 +177,6 @@ def on_card_selected(ref_index: int):
         if st.session_state["consecutive_correct"] >= REQUIRED_CORRECT:
             st.session_state["categories_achieved"] += 1
             st.session_state["consecutive_correct"] = 0
-            # ルール変更
             old_rule = current_rule()
             st.session_state["current_rule_index"] += 1
             st.session_state["prev_correct_rule"]   = old_rule
@@ -158,18 +190,15 @@ def on_card_selected(ref_index: int):
     st.session_state["trial_num"] += 1
     st.session_state["target_card"] = generate_target()
 
-    # 終了判定
     if (st.session_state["trial_num"] >= MAX_TRIALS
             or st.session_state["categories_achieved"] >= MAX_CATEGORIES):
         st.session_state["finished"] = True
 
-
 def _match_dimension(target, chosen):
-    """ターゲットと選択カードが一致している次元を返す（最初に見つかったもの）"""
     for dim in ["color", "shape", "number"]:
         if target[dim] == chosen[dim]:
             return dim
-    return None  # 全次元不一致
+    return None
 
 def _error_label(error_type):
     mapping = {
@@ -180,50 +209,6 @@ def _error_label(error_type):
         None:                 "－",
     }
     return mapping.get(error_type, "非保続性エラー")
-
-# ─────────────────────────────────────────
-# UI部品：カード表示
-# ─────────────────────────────────────────
-def render_card(card: dict, size="normal", label=None, key=None, on_click=None):
-    c_emoji = COLOR_EMOJI.get(card["color"], "")
-    s_emoji = SHAPE_EMOJI.get(card["shape"], "")
-    n       = card["number"]
-
-    if size == "large":
-        html = f"""
-        <div style="
-            background:#1e293b; border:3px solid #60a5fa;
-            border-radius:16px; padding:24px 20px; text-align:center;
-            min-width:120px; font-family:'BIZ UDPGothic',sans-serif;
-            box-shadow:0 0 20px rgba(96,165,250,0.3);">
-          <div style="font-size:2.8rem; line-height:1.2;">{c_emoji}{s_emoji}</div>
-          <div style="font-size:1.4rem; color:#93c5fd; margin-top:6px;">{n}個</div>
-          <div style="font-size:0.85rem; color:#64748b; margin-top:4px;">
-            {card['color']}・{card['shape']}・{n}
-          </div>
-        </div>"""
-        st.markdown(html, unsafe_allow_html=True)
-    else:
-        # 選択ボタン用：Streamlitのボタン内にHTML埋め込みは難しいので
-        # カード表示 + ボタンを縦に並べる
-        st.markdown(f"""
-        <div style="
-            background:#0f172a; border:2px solid #334155;
-            border-radius:12px; padding:12px 8px; text-align:center;
-            font-family:'BIZ UDPGothic',sans-serif;">
-          <div style="font-size:1.8rem;">{c_emoji}{s_emoji}</div>
-          <div style="font-size:1rem; color:#94a3b8;">{n}個</div>
-          <div style="font-size:0.7rem; color:#475569; margin-top:2px;">
-            {card['color']}・{card['shape']}・{n}
-          </div>
-        </div>""", unsafe_allow_html=True)
-        if on_click is not None:
-            st.button(
-                f"カード{label}を選ぶ",
-                key=key,
-                on_click=on_click,
-                use_container_width=True,
-            )
 
 # ─────────────────────────────────────────
 # 画面①：スタート画面
@@ -289,16 +274,11 @@ def show_test():
     ref_cols = st.columns(4)
     for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
         with col:
-            c_emoji = COLOR_EMOJI[card["color"]]
-            s_emoji = SHAPE_EMOJI[card["shape"]]
+            svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
             st.markdown(f"""
-            <div style="background:#1e293b; border:2px solid #334155;
-                        border-radius:10px; padding:10px; text-align:center;">
-              <div style='font-size:1.6rem;'>{c_emoji}{s_emoji}</div>
-              <div style='font-size:0.9rem; color:#94a3b8;'>{card['number']}個</div>
-              <div style='font-size:0.65rem; color:#475569;'>
-                {card['color']}・{card['shape']}・{card['number']}
-              </div>
+            <div style="background:#f8fafc; border:2px solid #cbd5e1;
+                        border-radius:12px; padding:10px; text-align:center; height:100%;">
+              {svg_html}
             </div>""", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -310,36 +290,23 @@ def show_test():
     )
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
-        c_emoji = COLOR_EMOJI[target["color"]]
-        s_emoji = SHAPE_EMOJI[target["shape"]]
+        svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
         st.markdown(f"""
-        <div style="background:#1e293b; border:3px solid #fbbf24;
+        <div style="background:#f8fafc; border:4px solid #fbbf24;
                     border-radius:16px; padding:20px; text-align:center;
                     box-shadow:0 0 20px rgba(251,191,36,0.3);">
-          <div style='font-size:2.8rem;'>{c_emoji}{s_emoji}</div>
-          <div style='font-size:1.2rem; color:#fbbf24;'>{target['number']}個</div>
-          <div style='font-size:0.75rem; color:#78716c;'>
-            {target['color']}・{target['shape']}・{target['number']}
-          </div>
+          {svg_html}
         </div>""", unsafe_allow_html=True)
 
     st.markdown(
-        "<p style='text-align:center; color:#94a3b8; margin-top:16px;'>どの基準カードと同じグループですか？</p>",
+        "<p style='text-align:center; color:#94a3b8; margin-top:20px;'>どの基準カードと同じグループですか？<br>下のボタンを選んでください。</p>",
         unsafe_allow_html=True
     )
 
     # ── 選択ボタン ───────────────────────
     btn_cols = st.columns(4)
-    for i, (col, card) in enumerate(zip(btn_cols, REFERENCE_CARDS)):
+    for i, col in enumerate(btn_cols):
         with col:
-            c_emoji = COLOR_EMOJI[card["color"]]
-            s_emoji = SHAPE_EMOJI[card["shape"]]
-            st.markdown(f"""
-            <div style="background:#0f172a; border:1px solid #334155;
-                        border-radius:10px; padding:10px; text-align:center; margin-bottom:4px;">
-              <div style='font-size:1.6rem;'>{c_emoji}{s_emoji}</div>
-              <div style='font-size:0.8rem; color:#64748b;'>{card['number']}個</div>
-            </div>""", unsafe_allow_html=True)
             st.button(
                 f"カード {i+1}",
                 key=f"btn_{trial}_{i}",
@@ -359,13 +326,11 @@ def show_results():
       📊 テスト結果レポート
     </h2>""", unsafe_allow_html=True)
 
-    # 患者・検査者情報
     p = st.session_state.get("patient_name", "")
     e = st.session_state.get("examiner_name", "")
     if p or e:
         st.markdown(f"**患者名：** {p}　　**検査者：** {e}")
 
-    # ── 総合スコア ───────────────────────
     total_trials    = len(df)
     total_correct   = (df["正誤"] == "○").sum()
     total_errors    = (df["正誤"] == "×").sum()
@@ -379,7 +344,6 @@ def show_results():
 
     st.markdown("---")
 
-    # ── エラー種別集計 ─────────────────
     error_df = df[df["正誤"] == "×"]
     error_counts = error_df["エラー種別"].value_counts().reset_index()
     error_counts.columns = ["エラー種別", "回数"]
@@ -388,7 +352,6 @@ def show_results():
 
     with col_left:
         st.subheader("エラー種別の内訳")
-        error_labels_order = ["ミルナー型保続","ネルソン型保続","セット維持困難","非保続性エラー"]
         error_color_map = {
             "ミルナー型保続": "#ef4444",
             "ネルソン型保続": "#f97316",
@@ -428,11 +391,9 @@ def show_results():
 
     st.markdown("---")
 
-    # ── 試行ごとの正誤推移グラフ ──────────
     st.subheader("試行ごとの正誤推移")
     df_plot = df.copy()
     df_plot["正誤_数値"] = df_plot["正誤"].map({"○": 1, "×": 0})
-    # 10試行ごとの正解率
     df_plot["ブロック"] = ((df_plot["試行"] - 1) // 10) * 10 + 5
     block_summary = df_plot.groupby("ブロック")["正誤_数値"].mean().reset_index()
     block_summary.columns = ["試行（中点）", "正解率"]
@@ -451,8 +412,7 @@ def show_results():
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(15,23,42,0.8)",
         font_color="#e2e8f0",
-        yaxis=dict(title="正解率", range=[0,1], tickformat=".0%",
-                   gridcolor="#1e293b"),
+        yaxis=dict(title="正解率", range=[0,1], tickformat=".0%", gridcolor="#1e293b"),
         xaxis=dict(title="試行番号", gridcolor="#1e293b"),
         margin=dict(t=20,b=40,l=60,r=20),
     )
@@ -460,9 +420,7 @@ def show_results():
 
     st.markdown("---")
 
-    # ── 全試行履歴テーブル ───────────────
     st.subheader("全試行の詳細ログ")
-
     def highlight_errors(row):
         if row["正誤"] == "○":
             return ["background-color: rgba(34,197,94,0.1)"] * len(row)
@@ -479,7 +437,6 @@ def show_results():
     styled_df = df.style.apply(highlight_errors, axis=1)
     st.dataframe(styled_df, use_container_width=True, height=400)
 
-    # CSVダウンロード
     csv = df.to_csv(index=False, encoding="utf-8-sig")
     st.download_button(
         label="📥 結果をCSVでダウンロード",
@@ -493,7 +450,6 @@ def show_results():
         reset_test()
         st.rerun()
 
-
 # ─────────────────────────────────────────
 # メイン
 # ─────────────────────────────────────────
@@ -505,7 +461,6 @@ def main():
         initial_sidebar_state="collapsed",
     )
 
-    # ダークテーマ調整CSS
     st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #e2e8f0; }
@@ -515,6 +470,9 @@ def main():
         border: 1px solid #3b82f6;
         border-radius: 8px;
         transition: all 0.2s;
+        padding: 15px 0;
+        font-size: 1.1rem;
+        font-weight: bold;
     }
     .stButton > button:hover {
         background-color: #2563eb;
@@ -538,7 +496,6 @@ def main():
         show_results()
     else:
         show_test()
-
 
 if __name__ == "__main__":
     main()
