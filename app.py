@@ -4,6 +4,7 @@ Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ�
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
 import plotly.graph_objects as go
@@ -242,27 +243,60 @@ def show_test():
     else:
         st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
-    # ── 基準カード（直接クリック） ─────────
-    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold;'>【基準カード】</p>", unsafe_allow_html=True)
-    ref_cols = st.columns(4)
-    for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
+    # ── 隠しボタン（JavaScriptがクリックするためのStreamlitボタン） ──
+    # CSSで画面外へ飛ばすが、DOMには存在してJS経由でクリック可能
+    hcols = st.columns(4)
+    for i, col in enumerate(hcols):
         with col:
-            svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-            
-            # カードを描画
-            st.markdown(f'<div class="ref-card">{svg_html}</div>', unsafe_allow_html=True)
-            
-            # カードの下に選択ボタンを配置（シンプルで確実な方式）
-            card = REFERENCE_CARDS[i]
-            st.button(
-                f"▲ カード{i+1}を選ぶ",
-                key=f"btn_{trial}_{i}",
-                on_click=on_card_selected,
-                args=(i,),
-                use_container_width=True,
-            )
+            if st.button(f"WCST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
+                on_card_selected(i)
+                st.rerun()
 
-    st.markdown("<hr style='border-color:#334155; margin:15px 0;'>", unsafe_allow_html=True)
+    # ── 基準カード（components.htmlでリッチ描画 → クリックでJS発火） ──
+    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
+
+    cards_html_parts = []
+    for i, card in enumerate(REFERENCE_CARDS):
+        svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
+        cards_html_parts.append(f"""
+        <div class="ref-card" onclick="selectCard({i})" title="{card['color']}・{card['shape']}・{card['number']}">
+            {svg}
+        </div>""")
+
+    cards_block = f"""
+    <style>
+      body {{ margin:0; padding:0; background:transparent; }}
+      .cards-row {{ display:flex; gap:10px; justify-content:center; padding:4px; }}
+      .ref-card {{
+        flex:1; background:#f8fafc; border:2px solid #cbd5e1;
+        border-radius:10px; cursor:pointer;
+        display:flex; justify-content:center; align-items:center;
+        height:120px; transition: border-color .15s, box-shadow .15s, transform .1s;
+        user-select:none;
+      }}
+      .ref-card:hover {{
+        border-color:#60a5fa;
+        box-shadow:0 0 16px rgba(96,165,250,0.7);
+        transform:translateY(-3px);
+      }}
+      .ref-card:active {{ transform:translateY(0); border-color:#2563eb; }}
+    </style>
+    <div class="cards-row">{''.join(cards_html_parts)}</div>
+    <script>
+      function selectCard(i) {{
+        var label = 'WCST_CARD_' + i;
+        var buttons = window.parent.document.querySelectorAll('button');
+        for (var j = 0; j < buttons.length; j++) {{
+          if (buttons[j].innerText.trim() === label) {{
+            buttons[j].click();
+            return;
+          }}
+        }}
+      }}
+    </script>"""
+    components.html(cards_block, height=145)
+
+    st.markdown("<hr style='border-color:#334155; margin:10px 0;'>", unsafe_allow_html=True)
 
     # ── ターゲットカード ─────────────────
     st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】<br><span style='font-size:0.8rem; font-weight:normal; color:#94a3b8;'>上の基準カードを直接タップしてください</span></p>", unsafe_allow_html=True)
@@ -415,34 +449,16 @@ def main():
         border-color: #60a5fa !important;
     }
 
-    /* 基準カードのデザイン */
-    .ref-card {
-        height: 120px;
-        background: #f8fafc;
-        border: 2px solid #cbd5e1;
-        border-radius: 8px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        margin-bottom: 6px;
-    }
-
-    /* 選択ボタンのデザイン（secondaryボタンを見やすく） */
+    /* ＝＝ 隠しボタン（WCST_CARD_0〜3）を画面外へ追い出す ＝＝
+       DOMには残るのでJavaScriptから.click()は可能 */
     button[kind="secondary"] {
-        background-color: #1e293b !important;
-        color: #93c5fd !important;
-        border: 1px solid #3b82f6 !important;
-        border-radius: 8px !important;
-        font-size: 0.85rem !important;
-        font-weight: bold !important;
-        cursor: pointer !important;
-        transition: background-color 0.15s, border-color 0.15s !important;
-    }
-    button[kind="secondary"]:hover {
-        background-color: #2563eb !important;
-        border-color: #60a5fa !important;
-        color: #ffffff !important;
+        position: fixed !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 1px !important;
+        height: 1px !important;
+        overflow: hidden !important;
+        opacity: 0.001 !important;   /* 0にするとブラウザ依存でclick()無効になる場合があるため0.001 */
     }
     </style>
     """, unsafe_allow_html=True)
