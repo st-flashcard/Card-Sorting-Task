@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (SVG図形描画 臨床レイアウト完全版)
+Streamlit版 臨床評価ツール (1画面収まり・UI非表示 完全版)
 """
 
 import streamlit as st
@@ -12,9 +12,9 @@ import plotly.express as px
 # ─────────────────────────────────────────
 # 定数・設定
 # ─────────────────────────────────────────
-MAX_TRIALS = 64          # 総試行数
-REQUIRED_CORRECT = 6    # 1カテゴリー達成に必要な連続正解数
-MAX_CATEGORIES = 6      # 達成目標カテゴリー数
+MAX_TRIALS = 64
+REQUIRED_CORRECT = 6
+MAX_CATEGORIES = 6
 
 COLORS  = ["赤", "緑", "黄", "青"]
 SHAPES  = ["三角", "星", "十字", "丸"]
@@ -23,9 +23,6 @@ NUMBERS = ["1", "2", "3", "4"]
 RULE_LABEL   = {"color": "色", "shape": "形", "number": "数"}
 RULE_ORDER   = ["color", "shape", "number", "color", "shape", "number"]
 
-# ─────────────────────────────────────────
-# 刺激カード（基準4枚）固定定義
-# ─────────────────────────────────────────
 REFERENCE_CARDS = [
     {"color": "赤",  "shape": "三角", "number": "1"},
     {"color": "緑",  "shape": "星",   "number": "2"},
@@ -66,9 +63,10 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     for x, y in positions:
         items += f'<g transform="translate({x}, {y})">{shape_svg}</g>'
 
-    max_w = "80px" if size == "small" else ("160px" if size == "large" else "120px")
+    # サイズを少し小さめに調整して1画面に収める
+    max_w = "60px" if size == "small" else "110px"
     
-    return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:10px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
+    return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:4px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
 
 # ─────────────────────────────────────────
 # 初期化
@@ -204,12 +202,12 @@ def _error_label(error_type):
 # ─────────────────────────────────────────
 def show_start():
     st.markdown("""
-    <div style="text-align:center; padding: 40px 0 20px;">
-      <h1 style="font-size:2.2rem; color:#60a5fa; font-family:'BIZ UDPGothic',sans-serif;">
+    <div style="text-align:center; padding: 20px 0;">
+      <h1 style="font-size:2rem; color:#60a5fa; font-family:'BIZ UDPGothic',sans-serif; margin-bottom:5px;">
         🧠 Card Sorting Task
       </h1>
-      <p style="color:#94a3b8; font-size:1rem;">
-        認知的柔軟性評価ツール（カード分類課題）
+      <p style="color:#94a3b8; font-size:0.9rem;">
+        認知的柔軟性評価ツール
       </p>
     </div>""", unsafe_allow_html=True)
 
@@ -218,21 +216,19 @@ def show_start():
         with col2:
             st.text_input("患者名（任意）", key="patient_name")
             st.text_input("検査者名（任意）", key="examiner_name")
-            st.markdown("---")
             st.markdown(f"""
-            **テスト設定**
-            - 総試行数：最大 **{MAX_TRIALS}** 回
-            - 連続正解でカテゴリー達成：**{REQUIRED_CORRECT}** 回
-            - 達成目標カテゴリー数：**{MAX_CATEGORIES}** カテゴリー
-            """)
-            st.markdown("---")
+            <div style="background:#1e293b; padding:15px; border-radius:10px; margin:15px 0;">
+                <p style="margin:0; font-size:0.9rem;">✔️ 総試行数：最大 <b>{MAX_TRIALS}</b> 回</p>
+                <p style="margin:0; font-size:0.9rem;">✔️ 連続正解で達成：<b>{REQUIRED_CORRECT}</b> 回</p>
+            </div>
+            """, unsafe_allow_html=True)
             if st.button("🚀 テストを開始する", type="primary", use_container_width=True):
                 st.session_state["started"] = True
                 st.session_state["target_card"] = generate_target()
                 st.rerun()
 
 # ─────────────────────────────────────────
-# 画面②：テスト実施画面
+# 画面②：テスト実施画面 (スクロール・UI最適化)
 # ─────────────────────────────────────────
 def show_test():
     target = st.session_state["target_card"]
@@ -240,30 +236,22 @@ def show_test():
     cats   = st.session_state["categories_achieved"]
     consec = st.session_state["consecutive_correct"]
 
-    # ── ヘッダー ─────────────────────────
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("試行回数", f"{trial + 1} / {MAX_TRIALS}")
-    col_b.metric("達成カテゴリー", f"{cats} / {MAX_CATEGORIES}")
-    col_c.metric("現在の連続正解", f"{consec} / {REQUIRED_CORRECT}")
-
-    st.markdown("---")
-
-    # ── フィードバック ───────────────────
+    # フィードバック表示（領域を最小化）
     fb = st.session_state.get("feedback")
     if fb == "correct":
-        st.success("✅ 正解！")
+        st.markdown('<div style="background-color:rgba(34,197,94,0.2); color:#4ade80; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">✅ 正解！</div>', unsafe_allow_html=True)
     elif fb == "incorrect":
-        st.error("❌ 不正解")
+        st.markdown('<div style="background-color:rgba(239,68,68,0.2); color:#f87171; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">❌ 不正解</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True) # レイアウト保持用の空白
 
-    # ── 刺激カード（基準4枚）と選択ボタン（上部） ─────────
-    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold;'>【基準カード】</p>", unsafe_allow_html=True)
+    # ── 基準カードと選択ボタン ─────────
     ref_cols = st.columns(4)
     for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
         with col:
             svg_html = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-            st.markdown(f'<div style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:12px; padding:10px; text-align:center; margin-bottom:10px;">{svg_html}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background:#f8fafc; border:2px solid #cbd5e1; border-radius:8px; padding:6px; text-align:center; margin-bottom:8px;">{svg_html}</div>', unsafe_allow_html=True)
             
-            # 基準カードの真下にボタンを配置
             st.button(
                 f"ここに入れる",
                 key=f"btn_{trial}_{i}",
@@ -272,14 +260,16 @@ def show_test():
                 use_container_width=True,
             )
 
-    st.markdown("<hr style='border-color:#334155;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#334155; margin:15px 0;'>", unsafe_allow_html=True)
 
-    # ── ターゲットカード（下部） ─────────────────
-    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】</p>", unsafe_allow_html=True)
+    # ── ターゲットカード ─────────────────
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
         svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
-        st.markdown(f'<div style="background:#f8fafc; border:4px solid #fbbf24; border-radius:16px; padding:20px; text-align:center; box-shadow:0 0 20px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; padding:15px; text-align:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
+
+    # 進捗メーター（一番下にひっそり配置）
+    st.markdown(f"<p style='text-align:center; color:#64748b; font-size:0.8rem; margin-top:15px;'>試行: {trial + 1}/{MAX_TRIALS} ｜ 達成: {cats}/{MAX_CATEGORIES} ｜ 連続正解: {consec}/{REQUIRED_CORRECT}</p>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────
@@ -288,10 +278,7 @@ def show_test():
 def show_results():
     df = pd.DataFrame(st.session_state["logs"])
 
-    st.markdown("""
-    <h2 style='color:#60a5fa; font-family:"BIZ UDPGothic",sans-serif;'>
-      📊 テスト結果レポート
-    </h2>""", unsafe_allow_html=True)
+    st.markdown("""<h2 style='color:#60a5fa; font-family:"BIZ UDPGothic",sans-serif; margin-bottom:0;'>📊 テスト結果レポート</h2>""", unsafe_allow_html=True)
 
     p = st.session_state.get("patient_name", "")
     e = st.session_state.get("examiner_name", "")
@@ -304,10 +291,10 @@ def show_results():
     categories      = st.session_state["categories_achieved"]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("総試行数",           total_trials)
-    col2.metric("達成カテゴリー数",    categories)
-    col3.metric("総正解数",           total_correct)
-    col4.metric("総エラー数",         total_errors)
+    col1.metric("総試行数", total_trials)
+    col2.metric("達成カテゴリー", categories)
+    col3.metric("総正解数", total_correct)
+    col4.metric("総エラー数", total_errors)
 
     st.markdown("---")
 
@@ -332,12 +319,7 @@ def show_results():
             hole=0.4,
             textinfo="label+value+percent",
         ))
-        fig_pie.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e8f0",
-            showlegend=False,
-            margin=dict(t=20,b=20,l=20,r=20),
-        )
+        fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color="#e2e8f0", showlegend=False, margin=dict(t=10,b=10,l=10,r=10))
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with col_right:
@@ -350,40 +332,11 @@ def show_results():
         st.markdown(f"""
 | エラー種別 | 回数 | 解釈 |
 |---|---|---|
-| 🔴 ミルナー型保続 | {milner_n}回 | 過去の成功体験からの切り替え困難（前頭葉機能） |
+| 🔴 ミルナー型保続 | {milner_n}回 | 過去の成功体験からの切り替え困難 |
 | 🟠 ネルソン型保続 | {nelson_n}回 | 直前の自分の行動パターンからの脱却困難 |
 | 🟡 セット維持困難 | {ftm_n}回 | 注意維持困難・ルール保持の不安定さ |
 | ⬜ 非保続性エラー | {other_n}回 | 注意逸脱・ワーキングメモリ低下の疑い |
         """)
-
-    st.markdown("---")
-
-    st.subheader("試行ごとの正誤推移")
-    df_plot = df.copy()
-    df_plot["正誤_数値"] = df_plot["正誤"].map({"○": 1, "×": 0})
-    df_plot["ブロック"] = ((df_plot["試行"] - 1) // 10) * 10 + 5
-    block_summary = df_plot.groupby("ブロック")["正誤_数値"].mean().reset_index()
-    block_summary.columns = ["試行（中点）", "正解率"]
-
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(
-        x=block_summary["試行（中点）"],
-        y=block_summary["正解率"],
-        mode="lines+markers",
-        line=dict(color="#60a5fa", width=2),
-        marker=dict(size=8),
-        fill="tozeroy",
-        fillcolor="rgba(96,165,250,0.1)",
-    ))
-    fig_line.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(15,23,42,0.8)",
-        font_color="#e2e8f0",
-        yaxis=dict(title="正解率", range=[0,1], tickformat=".0%", gridcolor="#1e293b"),
-        xaxis=dict(title="試行番号", gridcolor="#1e293b"),
-        margin=dict(t=20,b=40,l=60,r=20),
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
 
     st.markdown("---")
 
@@ -402,15 +355,10 @@ def show_results():
             return [f"background-color: {color}"] * len(row)
 
     styled_df = df.style.apply(highlight_errors, axis=1)
-    st.dataframe(styled_df, use_container_width=True, height=400)
+    st.dataframe(styled_df, use_container_width=True, height=300)
 
     csv = df.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button(
-        label="📥 結果をCSVでダウンロード",
-        data=csv,
-        file_name=f"cst_result_{p or 'patient'}.csv",
-        mime="text/csv",
-    )
+    st.download_button(label="📥 結果をCSVでダウンロード", data=csv, file_name=f"cst_result_{p or 'patient'}.csv", mime="text/csv")
 
     st.markdown("---")
     if st.button("🔄 テストをリセットして最初から", type="secondary"):
@@ -428,8 +376,24 @@ def main():
         initial_sidebar_state="collapsed",
     )
 
+    # UI非表示＆余白圧縮のための強力なCSS
     st.markdown("""
     <style>
+    /* 1. ヘッダー（GitHubロゴやメニューバー）を消す */
+    header {visibility: hidden !important;}
+    #MainMenu {visibility: hidden !important;}
+    
+    /* 2. フッター（Made with Streamlit）を消す */
+    footer {visibility: hidden !important;}
+    
+    /* 3. 上部の巨大な余白を削る（スクロール対策） */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+        max-width: 800px;
+    }
+
+    /* 全体のダークテーマとボタンのデザイン */
     .stApp { background-color: #0f172a; color: #e2e8f0; }
     .stButton > button {
         background-color: #1e40af;
@@ -437,8 +401,8 @@ def main():
         border: 1px solid #3b82f6;
         border-radius: 8px;
         transition: all 0.2s;
-        padding: 15px 0;
-        font-size: 1.1rem;
+        padding: 10px 0;
+        font-size: 1rem;
         font-weight: bold;
     }
     .stButton > button:hover {
@@ -449,9 +413,8 @@ def main():
         background: #1e293b;
         border: 1px solid #334155;
         border-radius: 10px;
-        padding: 12px;
+        padding: 8px;
     }
-    .stDataFrame { border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
