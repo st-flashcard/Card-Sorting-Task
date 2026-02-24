@@ -1,10 +1,9 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版・アクセス制限機能付き)
+Streamlit版 臨床評価ツール (美麗UI・iPhoneネイティブ対応版)
 """
 
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import random
 import plotly.graph_objects as go
@@ -230,9 +229,51 @@ def show_start():
                 st.rerun()
 
 # ─────────────────────────────────────────
-# 画面②：テスト実施画面
+# 画面②：テスト実施画面（★美麗UI×透明ボタンハック）
 # ─────────────────────────────────────────
 def show_test():
+    # ── ここが魔法のCSS（テスト画面限定） ──
+    st.markdown("""
+    <style>
+    /* 1. カードが並ぶ列（カラム）全体を相対配置の基準にする */
+    div[data-testid="column"] {
+        position: relative !important;
+    }
+
+    /* 2. Streamlitの純正ボタンを【完全透明】にして、列全体に被せる！ */
+    button[kind="secondary"] {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        opacity: 0 !important; /* 完全に見えなくする */
+        z-index: 999 !important; /* 一番手前に持ってくる */
+        cursor: pointer !important;
+    }
+
+    /* 3. 背景となる美しいカードのデザイン */
+    .beautiful-card {
+        background: #f8fafc;
+        border: 2px solid #cbd5e1;
+        border-radius: 12px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 130px;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+    
+    /* ホバー時（PC）やタップ時（スマホ）にカードがフワッと光るエフェクト */
+    div[data-testid="column"]:hover .beautiful-card {
+        border-color: #60a5fa;
+        box-shadow: 0 0 15px rgba(96,165,250,0.6);
+        transform: translateY(-3px);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     target = st.session_state["target_card"]
     trial  = st.session_state["trial_num"]
 
@@ -245,67 +286,34 @@ def show_test():
     else:
         st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
-    # ── 隠しボタン ──
-    hcols = st.columns(4)
-    for i, col in enumerate(hcols):
-        with col:
-            if st.button(f"CST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
+    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
+
+    # ── 基準カードの並び ──
+    cols = st.columns(4)
+    for i, card in enumerate(REFERENCE_CARDS):
+        with cols[i]:
+            svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
+            
+            # 裏側：美しいカードの見た目（Markdown）
+            st.markdown(f"""
+            <div class="beautiful-card">
+                {svg}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 手前：画面を覆う透明な純正ボタン（iPhone対策）
+            if st.button(" ", key=f"cst_btn_{trial}_{i}", use_container_width=True):
                 on_card_selected(i)
                 st.rerun()
 
-    # ── 基準カード ──
-    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#334155; margin:15px 0;'>", unsafe_allow_html=True)
 
-    cards_html_parts = []
-    for i, card in enumerate(REFERENCE_CARDS):
-        svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-        cards_html_parts.append(f"""
-        <div class="ref-card" onclick="selectCard({i})" title="{card['color']}・{card['shape']}・{card['number']}">
-            {svg}
-        </div>""")
-
-    cards_block = f"""
-    <style>
-      body {{ margin:0; padding:0; background:transparent; }}
-      .cards-row {{ display:flex; gap:10px; justify-content:center; padding:4px; }}
-      .ref-card {{
-        flex:1; background:#f8fafc; border:2px solid #cbd5e1;
-        border-radius:10px; cursor:pointer;
-        display:flex; justify-content:center; align-items:center;
-        height:120px; transition: border-color .15s, box-shadow .15s, transform .1s;
-        user-select:none;
-      }}
-      .ref-card:hover {{
-        border-color:#60a5fa;
-        box-shadow:0 0 16px rgba(96,165,250,0.7);
-        transform:translateY(-3px);
-      }}
-      .ref-card:active {{ transform:translateY(0); border-color:#2563eb; }}
-    </style>
-    <div class="cards-row">{''.join(cards_html_parts)}</div>
-    <script>
-      function selectCard(i) {{
-        var label = 'CST_CARD_' + i;
-        var buttons = window.parent.document.querySelectorAll('button');
-        for (var j = 0; j < buttons.length; j++) {{
-          if (buttons[j].innerText.trim() === label) {{
-            buttons[j].click();
-            return;
-          }}
-        }}
-      }}
-    </script>"""
-    components.html(cards_block, height=145)
-
-    st.markdown("<hr style='border-color:#334155; margin:10px 0;'>", unsafe_allow_html=True)
-
-    # ── ターゲットカード ─────────────────
-    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】<br><span style='font-size:0.8rem; font-weight:normal; color:#94a3b8;'>上の基準カードを直接タップしてください</span></p>", unsafe_allow_html=True)
+    # ── ターゲットカード ──
+    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】</p>", unsafe_allow_html=True)
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
         svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
         st.markdown(f'<div style="height:160px; background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; display:flex; justify-content:center; align-items:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
-
 
 # ─────────────────────────────────────────
 # 画面③：結果レポート
@@ -410,7 +418,6 @@ def show_results():
 # ブロック画面（ブログ経由以外のアクセスを弾く）
 # ─────────────────────────────────────────
 def show_block_screen():
-    # 以前のツールのデザインを再現したHTML/CSS
     html_content = f"""
     <div style="min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div style="background-color: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 500px; width: 100%; text-align: center; border: 4px solid #ffedd5;">
@@ -449,14 +456,12 @@ def main():
         initial_sidebar_state="collapsed",
     )
 
-    # ── 【修正済】最強のアクセス制限チェック ──
+    # ── 最強のアクセス制限チェック ──
     query_val = ""
     if hasattr(st, "query_params"):
         val = st.query_params.get("from", "")
-        # もしリスト形式["blog"]で返ってきても、中身の"blog"だけを確実に取り出す
         query_val = val[0] if isinstance(val, list) else val
     else:
-        # 古いStreamlitバージョンの場合の予備ルート
         params = st.experimental_get_query_params()
         query_val = params.get("from", [""])[0]
 
@@ -465,7 +470,6 @@ def main():
         st.markdown("<style>header {visibility: hidden;} footer {visibility: hidden;}</style>", unsafe_allow_html=True)
         show_block_screen()
         return
-    # ─────────────────────────────────────────
 
     st.markdown("""
     <style>
@@ -498,17 +502,6 @@ def main():
     button[kind="primary"]:hover {
         background-color: #2563eb !important;
         border-color: #60a5fa !important;
-    }
-
-    /* 隠しボタンを画面外へ */
-    button[kind="secondary"] {
-        position: fixed !important;
-        top: -9999px !important;
-        left: -9999px !important;
-        width: 1px !important;
-        height: 1px !important;
-        overflow: hidden !important;
-        opacity: 0.001 !important; 
     }
     </style>
     """, unsafe_allow_html=True)
