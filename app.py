@@ -1,28 +1,416 @@
+"""
+Card Sorting Task
+Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版・アクセス制限機能付き)
+"""
+
 import streamlit as st
-import random
-import time
+import streamlit.components.v1 as components
 import pandas as pd
+import random
+import plotly.graph_objects as go
+import plotly.express as px
 
 # ─────────────────────────────────────────
 # 定数・設定
 # ─────────────────────────────────────────
-BLOG_URL = "https://dementia-stroke-st.blogspot.com/" # ブログのURL
+MAX_TRIALS = 64
+REQUIRED_CORRECT = 6
+MAX_CATEGORIES = 6
 
-COLORS = {
-    "あか": "red",
-    "あお": "blue",
-    "きいろ": "#d4a017",
-    "みどり": "green"
-}
-COLOR_NAMES = list(COLORS.keys())
+COLORS  = ["赤", "緑", "黄", "青"]
+SHAPES  = ["三角", "星", "十字", "丸"]
+NUMBERS = ["1", "2", "3", "4"]
 
-MAX_PRACTICE = 4
-MAX_TRIALS   = 12
+RULE_LABEL   = {"color": "色", "shape": "形", "number": "数"}
+RULE_ORDER   = ["color", "shape", "number", "color", "shape", "number"]
+
+REFERENCE_CARDS = [
+    {"color": "赤",  "shape": "三角", "number": "1"},
+    {"color": "緑",  "shape": "星",   "number": "2"},
+    {"color": "黄",  "shape": "十字", "number": "3"},
+    {"color": "青",  "shape": "丸",   "number": "4"},
+]
+
+BLOG_URL = "https://dementia-stroke-st.blogspot.com/"
 
 # ─────────────────────────────────────────
-# ブロック画面（WCSTアプリから移植！）
+# 図形（SVG）描画ジェネレーター
+# ─────────────────────────────────────────
+def generate_card_svg(color_name, shape_name, number_str, size="normal"):
+    color_map = {"赤": "#ef4444", "緑": "#22c55e", "黄": "#eab308", "青": "#3b82f6"}
+    c = color_map.get(color_name, "#ffffff")
+    
+    if shape_name == "丸":
+        shape_svg = f'<circle cx="40" cy="40" r="35" fill="{c}"/>'
+    elif shape_name == "三角":
+        shape_svg = f'<polygon points="40,5 75,75 5,75" fill="{c}"/>'
+    elif shape_name == "十字":
+        shape_svg = f'<polygon points="25,5 55,5 55,25 75,25 75,55 55,55 55,75 25,75 25,55 5,55 5,25 25,25" fill="{c}"/>'
+    elif shape_name == "星":
+        shape_svg = f'<polygon points="40,2 52,27 79,31 59,50 65,77 40,63 15,77 21,50 1,31 28,27" fill="{c}"/>'
+    else:
+        shape_svg = ""
+
+    positions = []
+    n = int(number_str)
+    if n == 1:
+        positions = [(60, 60)]
+    elif n == 2:
+        positions = [(60, 10), (60, 110)]
+    elif n == 3:
+        positions = [(60, 10), (10, 110), (110, 110)]
+    elif n == 4:
+        positions = [(15, 15), (105, 15), (15, 105), (105, 105)]
+
+    items = ""
+    for x, y in positions:
+        items += f'<g transform="translate({x}, {y})">{shape_svg}</g>'
+
+    max_w = "60px" if size == "small" else "110px"
+    
+    return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:4px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
+
+# ─────────────────────────────────────────
+# 初期化
+# ─────────────────────────────────────────
+def init_state():
+    defaults = {
+        "started": False,
+        "finished": False,
+        "trial_num": 0,
+        "logs": [],
+        "current_rule_index": 0,
+        "consecutive_correct": 0,
+        "categories_achieved": 0,
+        "target_card": None,
+        "feedback": None,
+        "prev_wrong_dimension": None,
+        "prev_correct_rule": None,
+        "rule_just_changed": False,
+        "patient_name": "",
+        "examiner_name": "",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+def generate_target():
+    return {
+        "color":  random.choice(COLORS),
+        "shape":  random.choice(SHAPES),
+        "number": random.choice(NUMBERS),
+    }
+
+def current_rule():
+    idx = st.session_state["current_rule_index"]
+    return RULE_ORDER[idx] if idx < len(RULE_ORDER) else "color"
+
+def reset_test():
+    keys_to_clear = [
+        "started","finished","trial_num","logs",
+        "current_rule_index","consecutive_correct","categories_achieved",
+        "target_card","feedback","prev_wrong_dimension",
+        "prev_correct_rule","rule_just_changed",
+    ]
+    for k in keys_to_clear:
+        if k in st.session_state:
+            del st.session_state[k]
+    init_state()
+
+# ─────────────────────────────────────────
+# カード選択時の処理
+# ─────────────────────────────────────────
+def on_card_selected(ref_index: int):
+    target  = st.session_state["target_card"]
+    chosen  = REFERENCE_CARDS[ref_index]
+    rule    = current_rule()
+    is_correct = target[rule] == chosen[rule]
+
+    error_type = None
+    chosen_dimension = _match_dimension(target, chosen)
+
+    if not is_correct:
+        if (st.session_state["rule_just_changed"]
+                and chosen_dimension == st.session_state["prev_correct_rule"]):
+            error_type = "milner"
+        elif (st.session_state["prev_wrong_dimension"] is not None
+              and chosen_dimension == st.session_state["prev_wrong_dimension"]
+              and chosen_dimension != rule):
+            error_type = "nelson"
+        elif st.session_state["consecutive_correct"] >= 3:
+            error_type = "failure_to_maintain"
+        else:
+            error_type = "other"
+
+    log_entry = {
+        "試行":          st.session_state["trial_num"] + 1,
+        "ターゲット_色":  target["color"],
+        "ターゲット_形":  target["shape"],
+        "ターゲット_数":  target["number"],
+        "選択_色":        chosen["color"],
+        "選択_形":        chosen["shape"],
+        "選択_数":        chosen["number"],
+        "正解ルール":      RULE_LABEL[rule],
+        "選択次元":        RULE_LABEL.get(chosen_dimension, "不一致"),
+        "正誤":           "○" if is_correct else "×",
+        "エラー種別":      _error_label(error_type),
+        "達成カテゴリー":  st.session_state["categories_achieved"],
+    }
+    st.session_state["logs"].append(log_entry)
+
+    if is_correct:
+        st.session_state["consecutive_correct"] += 1
+        st.session_state["prev_wrong_dimension"] = None
+        st.session_state["rule_just_changed"] = False
+
+        if st.session_state["consecutive_correct"] >= REQUIRED_CORRECT:
+            st.session_state["categories_achieved"] += 1
+            st.session_state["consecutive_correct"] = 0
+            old_rule = current_rule()
+            st.session_state["current_rule_index"] += 1
+            st.session_state["prev_correct_rule"]   = old_rule
+            st.session_state["rule_just_changed"]   = True
+    else:
+        st.session_state["consecutive_correct"] = 0
+        st.session_state["prev_wrong_dimension"] = chosen_dimension
+        st.session_state["rule_just_changed"]    = False
+
+    st.session_state["feedback"]   = "correct" if is_correct else "incorrect"
+    st.session_state["trial_num"] += 1
+    st.session_state["target_card"] = generate_target()
+
+    if (st.session_state["trial_num"] >= MAX_TRIALS
+            or st.session_state["categories_achieved"] >= MAX_CATEGORIES):
+        st.session_state["finished"] = True
+
+def _match_dimension(target, chosen):
+    for dim in ["color", "shape", "number"]:
+        if target[dim] == chosen[dim]:
+            return dim
+    return None
+
+def _error_label(error_type):
+    mapping = {
+        "milner":             "ミルナー型保続",
+        "nelson":             "ネルソン型保続",
+        "failure_to_maintain":"セット維持困難",
+        "other":              "非保続性エラー",
+        None:                 "－",
+    }
+    return mapping.get(error_type, "非保続性エラー")
+
+# ─────────────────────────────────────────
+# 画面①：スタート画面
+# ─────────────────────────────────────────
+def show_start():
+    st.markdown("""
+    <div style="text-align:center; padding: 20px 0;">
+      <h1 style="font-size:2rem; color:#60a5fa; font-family:'BIZ UDPGothic',sans-serif; margin-bottom:5px;">
+        🧠 Card Sorting Task
+      </h1>
+      <p style="color:#94a3b8; font-size:0.9rem;">
+        認知的柔軟性評価ツール
+      </p>
+    </div>""", unsafe_allow_html=True)
+
+    with st.container():
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            st.text_input("患者名（任意）", key="patient_name")
+            st.text_input("検査者名（任意）", key="examiner_name")
+            st.markdown(f"""
+            <div style="background:#1e293b; padding:15px; border-radius:10px; margin:15px 0;">
+                <p style="margin:0; font-size:0.9rem;">✔️ 総試行数：最大 <b>{MAX_TRIALS}</b> 回</p>
+                <p style="margin:0; font-size:0.9rem;">✔️ 連続正解で達成：<b>{REQUIRED_CORRECT}</b> 回</p>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🚀 テストを開始する", type="primary", use_container_width=True):
+                st.session_state["started"] = True
+                st.session_state["target_card"] = generate_target()
+                st.rerun()
+
+# ─────────────────────────────────────────
+# 画面②：テスト実施画面
+# ─────────────────────────────────────────
+def show_test():
+    target = st.session_state["target_card"]
+    trial  = st.session_state["trial_num"]
+
+    # フィードバック表示
+    fb = st.session_state.get("feedback")
+    if fb == "correct":
+        st.markdown('<div style="background-color:rgba(34,197,94,0.2); color:#4ade80; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">✅ 正解！</div>', unsafe_allow_html=True)
+    elif fb == "incorrect":
+        st.markdown('<div style="background-color:rgba(239,68,68,0.2); color:#f87171; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">❌ 不正解</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
+
+    # ── 隠しボタン ──
+    hcols = st.columns(4)
+    for i, col in enumerate(hcols):
+        with col:
+            if st.button(f"CST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
+                on_card_selected(i)
+                st.rerun()
+
+    # ── 基準カード ──
+    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
+
+    cards_html_parts = []
+    for i, card in enumerate(REFERENCE_CARDS):
+        svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
+        cards_html_parts.append(f"""
+        <div class="ref-card" onclick="selectCard({i})" title="{card['color']}・{card['shape']}・{card['number']}">
+            {svg}
+        </div>""")
+
+    cards_block = f"""
+    <style>
+      body {{ margin:0; padding:0; background:transparent; }}
+      .cards-row {{ display:flex; gap:10px; justify-content:center; padding:4px; }}
+      .ref-card {{
+        flex:1; background:#f8fafc; border:2px solid #cbd5e1;
+        border-radius:10px; cursor:pointer;
+        display:flex; justify-content:center; align-items:center;
+        height:120px; transition: border-color .15s, box-shadow .15s, transform .1s;
+        user-select:none;
+      }}
+      .ref-card:hover {{
+        border-color:#60a5fa;
+        box-shadow:0 0 16px rgba(96,165,250,0.7);
+        transform:translateY(-3px);
+      }}
+      .ref-card:active {{ transform:translateY(0); border-color:#2563eb; }}
+    </style>
+    <div class="cards-row">{''.join(cards_html_parts)}</div>
+    <script>
+      function selectCard(i) {{
+        var label = 'CST_CARD_' + i;
+        var buttons = window.parent.document.querySelectorAll('button');
+        for (var j = 0; j < buttons.length; j++) {{
+          if (buttons[j].innerText.trim() === label) {{
+            buttons[j].click();
+            return;
+          }}
+        }}
+      }}
+    </script>"""
+    components.html(cards_block, height=145)
+
+    st.markdown("<hr style='border-color:#334155; margin:10px 0;'>", unsafe_allow_html=True)
+
+    # ── ターゲットカード ─────────────────
+    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】<br><span style='font-size:0.8rem; font-weight:normal; color:#94a3b8;'>上の基準カードを直接タップしてください</span></p>", unsafe_allow_html=True)
+    _, tc_col, _ = st.columns([1.5, 1, 1.5])
+    with tc_col:
+        svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
+        st.markdown(f'<div style="height:160px; background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; display:flex; justify-content:center; align-items:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────
+# 画面③：結果レポート
+# ─────────────────────────────────────────
+def show_results():
+    df = pd.DataFrame(st.session_state["logs"])
+
+    st.markdown("""<h2 style='color:#60a5fa; font-family:"BIZ UDPGothic",sans-serif; margin-bottom:0;'>📊 テスト結果レポート</h2>""", unsafe_allow_html=True)
+
+    p = st.session_state.get("patient_name", "")
+    e = st.session_state.get("examiner_name", "")
+    if p or e:
+        st.markdown(f"**患者名：** {p}　　**検査者：** {e}")
+
+    total_trials    = len(df)
+    total_correct   = (df["正誤"] == "○").sum()
+    total_errors    = (df["正誤"] == "×").sum()
+    categories      = st.session_state["categories_achieved"]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("総試行数", total_trials)
+    col2.metric("達成カテゴリー", categories)
+    col3.metric("総正解数", total_correct)
+    col4.metric("総エラー数", total_errors)
+
+    st.markdown("---")
+
+    error_df = df[df["正誤"] == "×"]
+    error_counts = error_df["エラー種別"].value_counts().reset_index()
+    error_counts.columns = ["エラー種別", "回数"]
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.subheader("エラー種別の内訳")
+        error_color_map = {
+            "ミルナー型保続": "#ef4444",
+            "ネルソン型保続": "#f97316",
+            "セット維持困難": "#eab308",
+            "非保続性エラー": "#6b7280",
+        }
+        fig_pie = go.Figure(go.Pie(
+            labels=error_counts["エラー種別"],
+            values=error_counts["回数"],
+            marker_colors=[error_color_map.get(x, "#6b7280") for x in error_counts["エラー種別"]],
+            hole=0.4,
+            textinfo="label+value+percent",
+        ))
+        fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color="#e2e8f0", showlegend=False, margin=dict(t=10,b=10,l=10,r=10))
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_right:
+        st.subheader("エラーの臨床的解釈")
+        milner_n  = error_counts.query("エラー種別=='ミルナー型保続'")["回数"].sum() if "ミルナー型保続" in error_counts["エラー種別"].values else 0
+        nelson_n  = error_counts.query("エラー種別=='ネルソン型保続'")["回数"].sum() if "ネルソン型保続" in error_counts["エラー種別"].values else 0
+        ftm_n     = error_counts.query("エラー種別=='セット維持困難'")["回数"].sum() if "セット維持困難" in error_counts["エラー種別"].values else 0
+        other_n   = error_counts.query("エラー種別=='非保続性エラー'")["回数"].sum() if "非保続性エラー" in error_counts["エラー種別"].values else 0
+
+        st.markdown(f"""
+| エラー種別 | 回数 | 解釈 |
+|---|---|---|
+| 🔴 ミルナー型保続 | {milner_n}回 | 過去の成功体験からの切り替え困難 |
+| 🟠 ネルソン型保続 | {nelson_n}回 | 直前の自分の行動パターンからの脱却困難 |
+| 🟡 セット維持困難 | {ftm_n}回 | 注意維持困難・ルール保持の不安定さ |
+| ⬜ 非保続性エラー | {other_n}回 | 注意逸脱・ワーキングメモリ低下の疑い |
+        """)
+
+    st.markdown("---")
+
+    st.subheader("全試行の詳細ログ")
+    def highlight_errors(row):
+        if row["正誤"] == "○":
+            return ["background-color: rgba(34,197,94,0.1)"] * len(row)
+        else:
+            type_color = {
+                "ミルナー型保続":  "rgba(239,68,68,0.2)",
+                "ネルソン型保続":  "rgba(249,115,22,0.2)",
+                "セット維持困難":  "rgba(234,179,8,0.2)",
+                "非保続性エラー":  "rgba(107,114,128,0.2)",
+            }
+            color = type_color.get(row["エラー種別"], "rgba(107,114,128,0.1)")
+            return [f"background-color: {color}"] * len(row)
+
+    styled_df = df.style.apply(highlight_errors, axis=1)
+    st.dataframe(styled_df, use_container_width=True, height=300)
+
+    csv = df.to_csv(index=False, encoding="utf-8-sig")
+    st.download_button(
+        label="📥 結果をCSVでダウンロード",
+        data=csv,
+        file_name=f"cst_result_{p or 'patient'}.csv",
+        mime="text/csv",
+        type="primary" 
+    )
+
+    st.markdown("---")
+    if st.button("🔄 テストをリセットして最初から", type="primary", use_container_width=True):
+        reset_test()
+        st.rerun()
+
+# ─────────────────────────────────────────
+# ブロック画面（ブログ経由以外のアクセスを弾く）
 # ─────────────────────────────────────────
 def show_block_screen():
+    # 以前のツールのデザインを再現したHTML/CSS
     html_content = f"""
     <div style="min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div style="background-color: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 500px; width: 100%; text-align: center; border: 4px solid #ffedd5;">
@@ -49,239 +437,90 @@ def show_block_screen():
     """
     st.markdown(html_content, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
-# アプリの裏側（関数群）
-# ─────────────────────────────────────────
-def build_trial_sequence(condition, n_trials):
-    if condition == "congruent":
-        pool = [(w, w) for w in COLOR_NAMES]
-    else:
-        pool = [(w, c) for w in COLOR_NAMES for c in COLOR_NAMES if c != w]
-    sequence = []
-    while len(sequence) < n_trials:
-        shuffled = pool[:]
-        random.shuffle(shuffled)
-        if sequence and shuffled[0] == sequence[-1]:
-            swap_idx = random.randint(1, len(shuffled) - 1)
-            shuffled[0], shuffled[swap_idx] = shuffled[swap_idx], shuffled[0]
-        sequence.extend(shuffled)
-    return sequence[:n_trials]
-
-def init_state():
-    defaults = {
-        "phase":          "start",
-        "trial":          0,
-        "results":        [],
-        "start_time":     0.0,
-        "seq_condition":  "",
-        "seq_length":     0,
-        "trial_sequence": [],
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-def ensure_sequence():
-    phase = st.session_state.phase
-    seq   = st.session_state.trial_sequence
-    trial = st.session_state.trial
-    if phase in ("practice", "part1", "part2", "part3") and (len(seq) == 0 or trial >= len(seq)):
-        cond = st.session_state.get("seq_condition")
-        n    = st.session_state.get("seq_length")
-        if cond and n > 0:
-            st.session_state.trial_sequence = build_trial_sequence(cond, n)
-            st.session_state.trial          = 0
-            st.session_state.start_time     = time.time()
-        else:
-            st.session_state.phase = "start"
-
-def load_sequence(condition, n):
-    st.session_state.seq_condition  = condition
-    st.session_state.seq_length     = n
-    st.session_state.trial_sequence = build_trial_sequence(condition, n)
-    st.session_state.trial          = 0
-    st.session_state.start_time     = time.time()
-
-def current_pair():
-    idx = st.session_state.trial
-    seq = st.session_state.trial_sequence
-    if not seq or idx >= len(seq):
-        return None, None
-    return seq[idx]
-
-def go_practice(): load_sequence("incongruent", MAX_PRACTICE); st.session_state.phase = "practice"
-def go_part1(): load_sequence("congruent", MAX_TRIALS); st.session_state.phase = "part1"
-def go_part2(): load_sequence("incongruent", MAX_TRIALS); st.session_state.phase = "part2"
-def go_part3(): load_sequence("incongruent", MAX_TRIALS); st.session_state.phase = "part3"
-def go_result(): st.session_state.phase = "result"
-
-def go_reset(): 
-    st.session_state.clear()
-    init_state()
-
-def handle_click(selected_color):
-    word, color = current_pair()
-    if word is None: return
-    reaction_time = time.time() - st.session_state.start_time
-    phase         = st.session_state.phase
-
-    if phase in ("practice", "part1", "part2"):
-        correct_answer = color
-    else:
-        correct_answer = word
-
-    is_correct = (selected_color == correct_answer)
-
-    if phase != "practice":
-        labels = {"part1": "Part1(一致)", "part2": "Part2(不一致・抑制)", "part3": "Part3(不一致・切替)"}
-        st.session_state.results.append({
-            "条件":         labels.get(phase, ""),
-            "試行":         st.session_state.trial + 1,
-            "表示文字":     word,
-            "インク色":     color,
-            "正答ターゲット": correct_answer,
-            "回答":         selected_color,
-            "正誤":         "〇" if is_correct else "×",
-            "反応時間(秒)": round(reaction_time, 3),
-        })
-
-    st.session_state.trial     += 1
-    st.session_state.start_time = time.time()
-
-def show_stimulus_and_buttons():
-    word, color = current_pair()
-    if word is None:
-        st.error("⚠️ エラー：最初からやり直してください。")
-        return
-    color_code = COLORS[color]
-    st.markdown(
-        f"<div style='text-align:center; font-size:110px; font-weight:bold;"
-        f"color:{color_code}; margin:30px 0;'>{word}</div>",
-        unsafe_allow_html=True
-    )
-    cols  = st.columns(4)
-    phase = st.session_state.phase
-    trial = st.session_state.trial
-    for i, cn in enumerate(COLOR_NAMES):
-        with cols[i]:
-            st.button(cn, key=f"btn_{phase}_{trial}_{i}", use_container_width=True, on_click=handle_click, args=(cn,))
 
 # ─────────────────────────────────────────
-# メイン処理（ここが一番重要！）
+# メイン
 # ─────────────────────────────────────────
 def main():
-    st.set_page_config(layout="wide", page_title="3-Stage Stroop Task")
+    st.set_page_config(
+        page_title="Card Sorting Task",
+        page_icon="🧠",
+        layout="centered",
+        initial_sidebar_state="collapsed",
+    )
 
-    # ★ウィスコンシン方式の最強にシンプルなアクセス制限★
-    # query_params を安全に取得
-    from_param = ""
+    # ── 【修正済】最強のアクセス制限チェック ──
+    query_val = ""
     if hasattr(st, "query_params"):
-        from_param = st.query_params.get("from", "")
+        val = st.query_params.get("from", "")
+        # もしリスト形式["blog"]で返ってきても、中身の"blog"だけを確実に取り出す
+        query_val = val[0] if isinstance(val, list) else val
     else:
-        # 古いStreamlit用
+        # 古いStreamlitバージョンの場合の予備ルート
         params = st.experimental_get_query_params()
-        from_param = params.get("from", [""])[0]
+        query_val = params.get("from", [""])[0]
 
-    if from_param != "tamasuke":
-        # 合言葉がない場合は、ヘッダーを消してブロック画面を出し、ここで完全にストップ！
+    # 合言葉が「blog」じゃなかったら弾く
+    if query_val != "blog":
         st.markdown("<style>header {visibility: hidden;} footer {visibility: hidden;}</style>", unsafe_allow_html=True)
         show_block_screen()
         return
+    # ─────────────────────────────────────────
 
-    # ── アクセス成功後のアプリ画面 ──
-    init_state()
-    ensure_sequence()
+    st.markdown("""
+    <style>
+    /* ヘッダーとフッターを消す */
+    header {visibility: hidden !important;}
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
     
-    st.title("🧠 3段階ストループ課題（Stroop & Reverse Stroop）")
-    phase = st.session_state.phase
+    /* 余白を削る */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+        max-width: 800px;
+    }
 
-    if phase == "start":
-        st.markdown("---")
-        st.markdown(f"""
-このアプリは、前頭葉の「抑制機能（我慢する力）」と「ルールの切り替え力（柔軟性）」を精密に評価する3段階テストです。
+    /* 全体のダークテーマ */
+    .stApp { background-color: #0f172a; color: #e2e8f0; }
 
-| フェーズ | 画面の文字 | 回答ルール | 難しさ・測るもの |
-|---|---|---|---|
-| Part 1 | 文字と色が**同じ** | **インクの色** | ★☆☆（ベースの処理速度） |
-| Part 2 | 文字と色が**違う** | **インクの色** | ★★★（純粋な抑制機能） |
-| Part 3 | 文字と色が**違う** | **文字を読む** | ★★☆（**ルールの切り替え力**） |
-""")
-        st.info("練習では、一番難しい「文字と色が違う画像で、インクの色を答える」練習をします。", icon="💡")
-        st.button("練習をはじめる", type="primary", use_container_width=True, on_click=go_practice)
+    /* primaryボタン（スタート・リセット等の青いボタン）のデザイン */
+    button[kind="primary"] {
+        background-color: #1e40af !important;
+        color: white !important;
+        border: 1px solid #3b82f6 !important;
+        border-radius: 8px !important;
+        transition: all 0.2s !important;
+        padding: 10px 0 !important;
+        font-size: 1rem !important;
+        font-weight: bold !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #2563eb !important;
+        border-color: #60a5fa !important;
+    }
 
-    elif phase == "practice":
-        if st.session_state.trial < MAX_PRACTICE:
-            st.warning("【練習】ルール：文字の意味ではなく、**インクの色**を押してください。")
-            show_stimulus_and_buttons()
-        else:
-            st.success("練習終了！次は本番です。")
-            st.markdown("まずは **文字とインクが同じ** 簡単な問題です。ルールは変わらず「インクの色」を押してください。")
-            st.button("Part 1 をスタート", type="primary", use_container_width=True, on_click=go_part1)
+    /* 隠しボタンを画面外へ */
+    button[kind="secondary"] {
+        position: fixed !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 1px !important;
+        height: 1px !important;
+        overflow: hidden !important;
+        opacity: 0.001 !important; 
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    elif phase == "part1":
-        if st.session_state.trial < MAX_TRIALS:
-            st.info(f"【Part 1: 一致】 ルール：**インクの色**を押してください。 ({st.session_state.trial + 1}/{MAX_TRIALS})")
-            show_stimulus_and_buttons()
-        else:
-            st.warning("Part 1 終了！次は文字とインクが **違います**。")
-            st.markdown("ルールは同じです。文字の誘惑に負けず、**インクの色**を押してください。")
-            st.button("Part 2 をスタート", type="primary", use_container_width=True, on_click=go_part2)
+    init_state()
 
-    elif phase == "part2":
-        if st.session_state.trial < MAX_TRIALS:
-            st.error(f"【Part 2: ストループ】 ルール：**インクの色**を押してください。 ({st.session_state.trial + 1}/{MAX_TRIALS})")
-            show_stimulus_and_buttons()
-        else:
-            st.success("Part 2 終了！ここで【ルール変更】です！！")
-            st.markdown("### ⚠️ ルールが変わります ⚠️\n次はインクの色を無視して、**「文字が何と書いてあるか（文字の意味）」**を押してください。")
-            st.button("Part 3 をスタート", type="primary", use_container_width=True, on_click=go_part3)
-
-    elif phase == "part3":
-        if st.session_state.trial < MAX_TRIALS:
-            st.success(f"【Part 3: 逆ストループ】 ⚠️ルール：**文字の意味**を押してください！ ({st.session_state.trial + 1}/{MAX_TRIALS})")
-            show_stimulus_and_buttons()
-        else:
-            st.success("すべてのテストが終了しました！お疲れ様でした。")
-            st.button("結果を見る", type="primary", use_container_width=True, on_click=go_result)
-
-    elif phase == "result":
-        st.markdown("## 📊 臨床評価レポート")
-        results = st.session_state.results
-        if not results:
-            st.button("最初からやり直す", on_click=go_reset)
-        else:
-            df = pd.DataFrame(results)
-            rt = {}
-            acc = {}
-            for p in ["Part1(一致)", "Part2(不一致・抑制)", "Part3(不一致・切替)"]:
-                pdf = df[df["条件"] == p]
-                rt[p]  = pdf["反応時間(秒)"].mean() if not pdf.empty else 0
-                acc[p] = (pdf["正誤"] == "〇").mean() * 100 if not pdf.empty else 0
-
-            inhibition_cost = rt["Part2(不一致・抑制)"] - rt["Part1(一致)"]
-            switching_cost  = rt["Part3(不一致・切替)"] - rt["Part1(一致)"]
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("①ベース速度 (Part1)", f"{rt['Part1(一致)']:.2f} 秒", f"正答 {acc['Part1(一致)']:.0f}%")
-            c2.metric("②抑制課題 (Part2)", f"{rt['Part2(不一致・抑制)']:.2f} 秒", f"正答 {acc['Part2(不一致・抑制)']:.0f}%")
-            c3.metric("③切り替え課題 (Part3)", f"{rt['Part3(不一致・切替)']:.2f} 秒", f"正答 {acc['Part3(不一致・切替)']:.0f}%")
-
-            st.markdown("---")
-            st.markdown("### 🔍 脳機能の解剖分析（タイム差の比較）")
-            
-            st.info(f"**🛑 純粋な抑制力（我慢する力）：【 {inhibition_cost:+.2f} 秒 】の干渉** (Part2 - Part1)\n\n"
-                    "ルール変更の負荷がない状態で、文字の誘惑を我慢するのにかかったコストです。この数字が大きいほど、前頭葉の抑制機能が低下しています。")
-            
-            st.warning(f"**🔄 ルールの切り替え力（セット転換）：【 {switching_cost:+.2f} 秒 】の干渉** (Part3 - Part1)\n\n"
-                     "健康であれば一瞬で終わるはずの「文字読み」に時間がかかっています。直前のルール（インクの色）からの切り替えが難しく、セットの固執（保続傾向）が生じている可能性があります。")
-
-            st.markdown("---")
-            with st.expander("全試行の生データを見る"):
-                st.dataframe(df, use_container_width=True)
-                csv = df.to_csv(index=False, encoding="utf-8-sig")
-                st.download_button("📥 CSVダウンロード", csv, "stroop_full_result.csv", "text/csv")
-            
-            st.button("最初からやり直す", use_container_width=True, on_click=go_reset)
+    if not st.session_state["started"]:
+        show_start()
+    elif st.session_state["finished"]:
+        show_results()
+    else:
+        show_test()
 
 if __name__ == "__main__":
     main()
