@@ -1,11 +1,4 @@
-"""
-Card Sorting Task
-Streamlit版 臨床評価ツール (美麗UI・直感タップ操作版)
-※PC/Androidタブレット推奨
-"""
-
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import random
 import plotly.graph_objects as go
@@ -58,15 +51,24 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     return f'<div style="display:flex; justify-content:center; align-items:center; width:100%;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
 
 # ─────────────────────────────────────────
-# ロジック・状態管理
+# 初期化・状態管理
 # ─────────────────────────────────────────
 def init_state():
-    defaults = {"started": False, "finished": False, "trial_num": 0, "logs": [], "current_rule_index": 0, "consecutive_correct": 0, "categories_achieved": 0, "target_card": None, "feedback": None, "prev_wrong_dimension": None, "prev_correct_rule": None, "rule_just_changed": False}
+    defaults = {
+        "started": False, "finished": False, "trial_num": 0, "logs": [], 
+        "current_rule_index": 0, "consecutive_correct": 0, "categories_achieved": 0, 
+        "target_card": None, "feedback": None, "prev_wrong_dimension": None, 
+        "prev_correct_rule": None, "rule_just_changed": False,
+        "patient_name": "", "examiner_name": "" # 名前を保持
+    }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
 
 def generate_target():
     return {"color": random.choice(COLORS), "shape": random.choice(SHAPES), "number": random.choice(NUMBERS)}
+
+def _error_label(et):
+    return {"milner": "ミルナー型保続", "nelson": "ネルソン型保続", "failure_to_maintain": "セット維持困難", "other": "非保続性エラー"}.get(et, "－")
 
 def on_card_selected(ref_index):
     target = st.session_state["target_card"]
@@ -84,7 +86,10 @@ def on_card_selected(ref_index):
         else: error_type = "other"
 
     st.session_state["logs"].append({
-        "試行": st.session_state["trial_num"] + 1, "正解ルール": RULE_LABEL[rule], "正誤": "○" if is_correct else "×", "エラー種別": _error_label(error_type)
+        "試行": st.session_state["trial_num"] + 1,
+        "正解ルール": RULE_LABEL[rule],
+        "正誤": "○" if is_correct else "×",
+        "エラー種別": _error_label(error_type)
     })
 
     if is_correct:
@@ -106,22 +111,14 @@ def on_card_selected(ref_index):
     if st.session_state["trial_num"] >= MAX_TRIALS or st.session_state["categories_achieved"] >= MAX_CATEGORIES:
         st.session_state["finished"] = True
 
-def _error_label(et):
-    return {"milner": "ミルナー型保続", "nelson": "ネルソン型保続", "failure_to_maintain": "セット維持困難", "other": "非保続性エラー"}.get(et, "－")
-
 # ─────────────────────────────────────────
-# UI描画
+# 画面描画
 # ─────────────────────────────────────────
 def main():
     st.set_page_config(layout="centered", page_title="Card Sorting Task")
     
     # アクセス制限
-    query_val = ""
-    if hasattr(st, "query_params"):
-        query_val = st.query_params.get("from", "")
-    else:
-        query_val = st.experimental_get_query_params().get("from", [""])[0]
-
+    query_val = st.query_params.get("from", "")
     if query_val != "blog":
         st.markdown(f'<div style="text-align:center; padding:50px;"><h2>アクセス制限</h2><p>ブログ読者様限定ツールです。</p><a href="{BLOG_URL}">ブログに戻る</a></div>', unsafe_allow_html=True)
         return
@@ -131,77 +128,74 @@ def main():
     header, footer {visibility: hidden !important;}
     .stApp { background-color: #0f172a; color: #e2e8f0; }
     
-    /* 隠しボタン（JavaScriptからクリック用） */
+    /* ボタンのデザイン（臨床ツールらしい清潔感のある青） */
+    button[kind="primary"] {
+        background-color: #1e40af !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+    }
+    
+    /* 選択ボタン（ブサイクにならないように、カードと一体感のあるデザイン） */
     button[kind="secondary"] {
-        position: fixed; top: -999px; left: -999px; opacity: 0;
+        background-color: #f8fafc !important;
+        border: 2px solid #cbd5e1 !important;
+        color: #1e293b !important;
+        border-radius: 10px !important;
+        font-weight: bold !important;
+        margin-top: -10px !important;
     }
-
-    /* 基準カードの見た目 */
-    .ref-card {
-        background: #f8fafc; border: 2px solid #cbd5e1; border-radius: 12px;
-        padding: 10px; cursor: pointer; transition: all 0.2s;
-        height: 140px; display: flex; align-items: center; justify-content: center;
-    }
-    .ref-card:hover {
-        border-color: #60a5fa; transform: translateY(-3px);
-        box-shadow: 0 0 15px rgba(96,165,250,0.6);
+    button[kind="secondary"]:hover {
+        border-color: #60a5fa !important;
+        background-color: #eff6ff !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
     init_state()
 
+    # ① スタート画面
     if not st.session_state["started"]:
         st.title("🧠 Card Sorting Task")
+        st.markdown("---")
+        st.session_state["patient_name"] = st.text_input("患者名（任意）", value=st.session_state["patient_name"])
+        st.session_state["examiner_name"] = st.text_input("検査者名（任意）", value=st.session_state["examiner_name"])
+        st.write("")
         if st.button("🚀 テストを開始する", type="primary", use_container_width=True):
             st.session_state["started"] = True
             st.session_state["target_card"] = generate_target()
             st.rerun()
+
+    # ② 結果画面
     elif st.session_state["finished"]:
-        st.title("📊 テスト結果")
+        st.title("📊 テスト結果レポート")
+        if st.session_state["patient_name"] or st.session_state["examiner_name"]:
+            st.markdown(f"**患者名：** {st.session_state['patient_name']}　**検査者：** {st.session_state['examiner_name']}")
+        
         df = pd.DataFrame(st.session_state["logs"])
+        st.write(f"### 達成カテゴリー数: {st.session_state['categories_achieved']}")
         st.dataframe(df, use_container_width=True)
-        if st.button("🔄 リセット", type="primary"):
+        
+        if st.button("🔄 最初からやり直す", type="primary", use_container_width=True):
             st.session_state.clear()
             st.rerun()
+
+    # ③ テスト実施画面
     else:
-        # ── テスト画面 ──
         fb = st.session_state.get("feedback")
         if fb == "correct": st.success("✅ 正解！")
         elif fb == "incorrect": st.error("❌ 不正解")
-        
+        else: st.write("")
+
         st.write("### 【基準カード】")
-        
-        # 隠しボタン（JSで叩く）
-        hcols = st.columns(4)
-        for i in range(4):
-            with hcols[i]:
-                if st.button(f"HIDDEN_{i}", key=f"h_{st.session_state.trial_num}_{i}"):
+        cols = st.columns(4)
+        for i, card in enumerate(REFERENCE_CARDS):
+            with cols[i]:
+                # カードを表示
+                st.markdown(generate_card_svg(card["color"], card["shape"], card["number"], size="small"), unsafe_allow_html=True)
+                # 確実に反応するボタン
+                if st.button(f"これに分類", key=f"btn_{st.session_state.trial_num}_{i}", use_container_width=True):
                     on_card_selected(i)
                     st.rerun()
-
-        # 美しい基準カード（直接クリック）
-        cards_html = ""
-        for i, card in enumerate(REFERENCE_CARDS):
-            svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-            cards_html += f'<div class="ref-card" onclick="document.querySelectorAll(\'button\')[{i+1}].click()">{svg}</div>'
-        
-        st.markdown(f'<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">{cards_html}</div>', unsafe_allow_html=True)
-        
-        # JavaScript（クリックをボタンに転送）
-        components.html("""
-            <script>
-            window.parent.document.querySelectorAll('button').forEach(btn => {
-                if(btn.innerText.includes('HIDDEN_')) btn.style.display = 'none';
-            });
-            function selectCard(i) {
-                const btns = window.parent.document.querySelectorAll('button');
-                btns.forEach(btn => {
-                    if(btn.innerText === 'HIDDEN_' + i) btn.click();
-                });
-            }
-            </script>
-        """, height=0)
 
         st.markdown("---")
         st.write("### 【今から分類するカード】")
