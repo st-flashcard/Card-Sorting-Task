@@ -336,35 +336,23 @@ def show_test():
     )
 
     # ── 選択ボタン ───────────────────────
-    st.markdown(
-        "<p style='text-align:center; color:#94a3b8; margin-top:8px;'>👇 どの基準カードと同じグループですか？</p>",
-        unsafe_allow_html=True
-    )
-    # iPhoneで選択ボタンを大きく・タップしやすくするCSS
-    st.markdown("""
-    <style>
-    /* 選択ボタンを大きく（特にモバイル） */
-    div[data-testid="stHorizontalBlock"] .stButton > button {
-        min-height: 72px !important;
-        font-size: 1.3rem !important;
-        line-height: 1.4 !important;
-        padding: 8px 4px !important;
-        white-space: pre-line !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
     btn_cols = st.columns(4)
     for i, (col, card) in enumerate(zip(btn_cols, REFERENCE_CARDS)):
         with col:
             c_emoji = COLOR_EMOJI[card["color"]]
             s_emoji = SHAPE_EMOJI[card["shape"]]
+            st.markdown(f"""
+            <div style="background:#0f172a; border:1px solid #334155;
+                        border-radius:10px; padding:10px; text-align:center; margin-bottom:4px;">
+              <div style='font-size:1.6rem;'>{c_emoji}{s_emoji}</div>
+              <div style='font-size:0.8rem; color:#64748b;'>{card['number']}個</div>
+            </div>""", unsafe_allow_html=True)
             st.button(
-                f"{c_emoji}{s_emoji}\nカード{i+1}",
+                f"カード {i+1}",
                 key=f"btn_{trial}_{i}",
                 on_click=on_card_selected,
                 args=(i,),
                 use_container_width=True,
-                help=f"{card['color']}・{card['shape']}・{card['number']}個",
             )
 
 # ─────────────────────────────────────────
@@ -523,52 +511,21 @@ def main():
         initial_sidebar_state="collapsed",
     )
 
-    # ダークテーマ + iOS対応CSS
+    # ダークテーマ調整CSS
     st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #e2e8f0; }
-
-    /* ── ボタン基本スタイル ── */
     .stButton > button {
-        background-color: #1e40af !important;
-        color: white !important;
-        border: 1px solid #3b82f6 !important;
-        border-radius: 8px !important;
-        /* iOSバグ修正: transition:all は pointer-events まで含むため個別指定 */
-        transition: background-color 0.2s, border-color 0.2s !important;
-        /* iOS 300msタップ遅延を除去 */
-        touch-action: manipulation !important;
-        /* iOSタップ時のハイライト除去 */
-        -webkit-tap-highlight-color: transparent !important;
-        /* テキスト選択によるタップ妨害を防止 */
-        user-select: none !important;
-        -webkit-user-select: none !important;
-        /* タップ領域を確保 */
-        min-height: 48px !important;
-        cursor: pointer !important;
+        background-color: #1e40af;
+        color: white;
+        border: 1px solid #3b82f6;
+        border-radius: 8px;
+        transition: all 0.2s;
     }
     .stButton > button:hover {
-        background-color: #2563eb !important;
-        border-color: #60a5fa !important;
+        background-color: #2563eb;
+        border-color: #60a5fa;
     }
-    .stButton > button:active {
-        background-color: #1d4ed8 !important;
-        transform: scale(0.97);
-    }
-
-    /* ── 選択ボタン（モバイル対応）── */
-    /* スマホで4列が小さすぎる問題を2×2グリッドに変更 */
-    @media (max-width: 600px) {
-        /* カード選択ボタンエリアを2列に */
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: 45% !important;
-        }
-        .stButton > button {
-            min-height: 60px !important;
-            font-size: 1rem !important;
-        }
-    }
-
     [data-testid="metric-container"] {
         background: #1e293b;
         border: 1px solid #334155;
