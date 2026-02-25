@@ -1,10 +1,9 @@
 """
-Card Sorting Task
-Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版)
+WCST（ウィスコンシンカードソーティングテスト）
+Streamlit版 臨床評価ツール
 """
 
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import random
 import plotly.graph_objects as go
@@ -13,60 +12,28 @@ import plotly.express as px
 # ─────────────────────────────────────────
 # 定数・設定
 # ─────────────────────────────────────────
-MAX_TRIALS = 64
-REQUIRED_CORRECT = 6
-MAX_CATEGORIES = 6
+MAX_TRIALS = 64          # 総試行数
+REQUIRED_CORRECT = 6    # 1カテゴリー達成に必要な連続正解数
+MAX_CATEGORIES = 6      # 達成目標カテゴリー数
 
 COLORS  = ["赤", "緑", "黄", "青"]
 SHAPES  = ["三角", "星", "十字", "丸"]
 NUMBERS = ["1", "2", "3", "4"]
 
+COLOR_EMOJI  = {"赤": "🔴", "緑": "🟢", "黄": "🟡", "青": "🔵"}
+SHAPE_EMOJI  = {"三角": "▲", "星": "★", "十字": "✚", "丸": "●"}
 RULE_LABEL   = {"color": "色", "shape": "形", "number": "数"}
 RULE_ORDER   = ["color", "shape", "number", "color", "shape", "number"]
 
+# ─────────────────────────────────────────
+# 刺激カード（基準4枚）固定定義
+# ─────────────────────────────────────────
 REFERENCE_CARDS = [
     {"color": "赤",  "shape": "三角", "number": "1"},
     {"color": "緑",  "shape": "星",   "number": "2"},
     {"color": "黄",  "shape": "十字", "number": "3"},
     {"color": "青",  "shape": "丸",   "number": "4"},
 ]
-
-# ─────────────────────────────────────────
-# 図形（SVG）描画ジェネレーター
-# ─────────────────────────────────────────
-def generate_card_svg(color_name, shape_name, number_str, size="normal"):
-    color_map = {"赤": "#ef4444", "緑": "#22c55e", "黄": "#eab308", "青": "#3b82f6"}
-    c = color_map.get(color_name, "#ffffff")
-    
-    if shape_name == "丸":
-        shape_svg = f'<circle cx="40" cy="40" r="35" fill="{c}"/>'
-    elif shape_name == "三角":
-        shape_svg = f'<polygon points="40,5 75,75 5,75" fill="{c}"/>'
-    elif shape_name == "十字":
-        shape_svg = f'<polygon points="25,5 55,5 55,25 75,25 75,55 55,55 55,75 25,75 25,55 5,55 5,25 25,25" fill="{c}"/>'
-    elif shape_name == "星":
-        shape_svg = f'<polygon points="40,2 52,27 79,31 59,50 65,77 40,63 15,77 21,50 1,31 28,27" fill="{c}"/>'
-    else:
-        shape_svg = ""
-
-    positions = []
-    n = int(number_str)
-    if n == 1:
-        positions = [(60, 60)]
-    elif n == 2:
-        positions = [(60, 10), (60, 110)]
-    elif n == 3:
-        positions = [(60, 10), (10, 110), (110, 110)]
-    elif n == 4:
-        positions = [(15, 15), (105, 15), (15, 105), (105, 105)]
-
-    items = ""
-    for x, y in positions:
-        items += f'<g transform="translate({x}, {y})">{shape_svg}</g>'
-
-    max_w = "60px" if size == "small" else "110px"
-    
-    return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:4px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
 
 # ─────────────────────────────────────────
 # 初期化
@@ -81,9 +48,9 @@ def init_state():
         "consecutive_correct": 0,
         "categories_achieved": 0,
         "target_card": None,
-        "feedback": None,
-        "prev_wrong_dimension": None,
-        "prev_correct_rule": None,
+        "feedback": None,          # "correct" | "incorrect" | None
+        "prev_wrong_dimension": None,  # ネルソン型判定用
+        "prev_correct_rule": None,     # ミルナー型判定用（ルール変更直後のみ有効）
         "rule_just_changed": False,
         "patient_name": "",
         "examiner_name": "",
@@ -119,27 +86,39 @@ def reset_test():
 # カード選択時の処理
 # ─────────────────────────────────────────
 def on_card_selected(ref_index: int):
+    """対象者がカードを選んだときに呼ばれる"""
     target  = st.session_state["target_card"]
     chosen  = REFERENCE_CARDS[ref_index]
     rule    = current_rule()
+
+    # 正誤判定
     is_correct = target[rule] == chosen[rule]
 
+    # ── エラー種別判定 ──────────────────
     error_type = None
     chosen_dimension = _match_dimension(target, chosen)
 
     if not is_correct:
+        # ミルナー型：ルール変更直後で、前の正解ルールで選んでいる
         if (st.session_state["rule_just_changed"]
                 and chosen_dimension == st.session_state["prev_correct_rule"]):
             error_type = "milner"
+
+        # ネルソン型：前回の間違えた次元と同じ次元で今回も間違えた
         elif (st.session_state["prev_wrong_dimension"] is not None
               and chosen_dimension == st.session_state["prev_wrong_dimension"]
               and chosen_dimension != rule):
             error_type = "nelson"
+
+        # セット維持困難：連続正解中（3回以上）に急に崩れた
         elif st.session_state["consecutive_correct"] >= 3:
             error_type = "failure_to_maintain"
+
+        # それ以外：非保続性エラー
         else:
             error_type = "other"
 
+    # ── ログ記録 ────────────────────────
     log_entry = {
         "試行":          st.session_state["trial_num"] + 1,
         "ターゲット_色":  target["color"],
@@ -156,6 +135,7 @@ def on_card_selected(ref_index: int):
     }
     st.session_state["logs"].append(log_entry)
 
+    # ── 連続正解・カテゴリー管理 ─────────
     if is_correct:
         st.session_state["consecutive_correct"] += 1
         st.session_state["prev_wrong_dimension"] = None
@@ -164,6 +144,7 @@ def on_card_selected(ref_index: int):
         if st.session_state["consecutive_correct"] >= REQUIRED_CORRECT:
             st.session_state["categories_achieved"] += 1
             st.session_state["consecutive_correct"] = 0
+            # ルール変更
             old_rule = current_rule()
             st.session_state["current_rule_index"] += 1
             st.session_state["prev_correct_rule"]   = old_rule
@@ -177,15 +158,18 @@ def on_card_selected(ref_index: int):
     st.session_state["trial_num"] += 1
     st.session_state["target_card"] = generate_target()
 
+    # 終了判定
     if (st.session_state["trial_num"] >= MAX_TRIALS
             or st.session_state["categories_achieved"] >= MAX_CATEGORIES):
         st.session_state["finished"] = True
 
+
 def _match_dimension(target, chosen):
+    """ターゲットと選択カードが一致している次元を返す（最初に見つかったもの）"""
     for dim in ["color", "shape", "number"]:
         if target[dim] == chosen[dim]:
             return dim
-    return None
+    return None  # 全次元不一致
 
 def _error_label(error_type):
     mapping = {
@@ -198,16 +182,64 @@ def _error_label(error_type):
     return mapping.get(error_type, "非保続性エラー")
 
 # ─────────────────────────────────────────
+# UI部品：カード表示
+# ─────────────────────────────────────────
+def render_card(card: dict, size="normal", label=None, key=None, on_click=None):
+    c_emoji = COLOR_EMOJI.get(card["color"], "")
+    s_emoji = SHAPE_EMOJI.get(card["shape"], "")
+    n       = card["number"]
+
+    if size == "large":
+        html = f"""
+        <div style="
+            background:#1e293b; border:3px solid #60a5fa;
+            border-radius:16px; padding:24px 20px; text-align:center;
+            min-width:120px; font-family:'BIZ UDPGothic',sans-serif;
+            box-shadow:0 0 20px rgba(96,165,250,0.3);">
+          <div style="font-size:2.8rem; line-height:1.2;">{c_emoji}{s_emoji}</div>
+          <div style="font-size:1.4rem; color:#93c5fd; margin-top:6px;">{n}個</div>
+          <div style="font-size:0.85rem; color:#64748b; margin-top:4px;">
+            {card['color']}・{card['shape']}・{n}
+          </div>
+        </div>"""
+        st.markdown(html, unsafe_allow_html=True)
+    else:
+        # 選択ボタン用：Streamlitのボタン内にHTML埋め込みは難しいので
+        # カード表示 + ボタンを縦に並べる
+        st.markdown(f"""
+        <div style="
+            background:#0f172a; border:2px solid #334155;
+            border-radius:12px; padding:12px 8px; text-align:center;
+            font-family:'BIZ UDPGothic',sans-serif;">
+          <div style="font-size:1.8rem;">{c_emoji}{s_emoji}</div>
+          <div style="font-size:1rem; color:#94a3b8;">{n}個</div>
+          <div style="font-size:0.7rem; color:#475569; margin-top:2px;">
+            {card['color']}・{card['shape']}・{n}
+          </div>
+        </div>""", unsafe_allow_html=True)
+        if on_click is not None:
+            st.button(
+                f"カード{label}を選ぶ",
+                key=key,
+                on_click=on_click,
+                use_container_width=True,
+            )
+
+def start_test():
+    st.session_state["started"] = True
+    st.session_state["target_card"] = generate_target()
+
+# ─────────────────────────────────────────
 # 画面①：スタート画面
 # ─────────────────────────────────────────
 def show_start():
     st.markdown("""
-    <div style="text-align:center; padding: 20px 0;">
-      <h1 style="font-size:2rem; color:#60a5fa; font-family:'BIZ UDPGothic',sans-serif; margin-bottom:5px;">
-        🧠 Card Sorting Task
+    <div style="text-align:center; padding: 40px 0 20px;">
+      <h1 style="font-size:2.2rem; color:#60a5fa; font-family:'BIZ UDPGothic',sans-serif;">
+        🧠 WCST 臨床評価ツール
       </h1>
-      <p style="color:#94a3b8; font-size:0.9rem;">
-        認知的柔軟性評価ツール
+      <p style="color:#94a3b8; font-size:1rem;">
+        ウィスコンシンカードソーティングテスト（簡易版）
       </p>
     </div>""", unsafe_allow_html=True)
 
@@ -216,95 +248,112 @@ def show_start():
         with col2:
             st.text_input("患者名（任意）", key="patient_name")
             st.text_input("検査者名（任意）", key="examiner_name")
+            st.markdown("---")
             st.markdown(f"""
-            <div style="background:#1e293b; padding:15px; border-radius:10px; margin:15px 0;">
-                <p style="margin:0; font-size:0.9rem;">✔️ 総試行数：最大 <b>{MAX_TRIALS}</b> 回</p>
-                <p style="margin:0; font-size:0.9rem;">✔️ 連続正解で達成：<b>{REQUIRED_CORRECT}</b> 回</p>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("🚀 テストを開始する", type="primary", use_container_width=True):
-                st.session_state["started"] = True
-                st.session_state["target_card"] = generate_target()
-                st.rerun()
+            **テスト設定**
+            - 総試行数：最大 **{MAX_TRIALS}** 回
+            - 連続正解でカテゴリー達成：**{REQUIRED_CORRECT}** 回
+            - 達成目標カテゴリー数：**{MAX_CATEGORIES}** カテゴリー
+            """)
+            st.markdown("---")
+            st.button("🚀 テストを開始する", type="primary",
+                      use_container_width=True, on_click=start_test)
 
 # ─────────────────────────────────────────
 # 画面②：テスト実施画面
 # ─────────────────────────────────────────
 def show_test():
     target = st.session_state["target_card"]
-    trial  = st.session_state["trial_num"]
 
-    # フィードバック表示
+    # 安全ガード：target_cardがNoneの場合（iPhoneでの再描画タイミングずれ対策）
+    if target is None:
+        st.session_state["target_card"] = generate_target()
+        target = st.session_state["target_card"]
+    trial  = st.session_state["trial_num"]
+    cats   = st.session_state["categories_achieved"]
+    consec = st.session_state["consecutive_correct"]
+
+    # ── ヘッダー ─────────────────────────
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("試行回数", f"{trial + 1} / {MAX_TRIALS}")
+    col_b.metric("達成カテゴリー", f"{cats} / {MAX_CATEGORIES}")
+    col_c.metric("現在の連続正解", f"{consec} / {REQUIRED_CORRECT}")
+
+    st.markdown("---")
+
+    # ── フィードバック ───────────────────
     fb = st.session_state.get("feedback")
     if fb == "correct":
-        st.markdown('<div style="background-color:rgba(34,197,94,0.2); color:#4ade80; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">✅ 正解！</div>', unsafe_allow_html=True)
+        st.success("✅ 正解！")
     elif fb == "incorrect":
-        st.markdown('<div style="background-color:rgba(239,68,68,0.2); color:#f87171; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">❌ 不正解</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
+        st.error("❌ 不正解")
 
-    # ── 隠しボタン（JavaScriptがクリックするためのStreamlitボタン） ──
-    # CSSで画面外へ飛ばすが、DOMには存在してJS経由でクリック可能
-    hcols = st.columns(4)
-    for i, col in enumerate(hcols):
+    # ── 刺激カード（基準4枚）表示 ─────────
+    st.markdown(
+        "<p style='text-align:center; color:#94a3b8; font-size:0.9rem;'>【基準カード】</p>",
+        unsafe_allow_html=True
+    )
+    ref_cols = st.columns(4)
+    for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
         with col:
-            if st.button(f"WCST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
-                on_card_selected(i)
-                st.rerun()
+            c_emoji = COLOR_EMOJI[card["color"]]
+            s_emoji = SHAPE_EMOJI[card["shape"]]
+            st.markdown(f"""
+            <div style="background:#1e293b; border:2px solid #334155;
+                        border-radius:10px; padding:10px; text-align:center;">
+              <div style='font-size:1.6rem;'>{c_emoji}{s_emoji}</div>
+              <div style='font-size:0.9rem; color:#94a3b8;'>{card['number']}個</div>
+              <div style='font-size:0.65rem; color:#475569;'>
+                {card['color']}・{card['shape']}・{card['number']}
+              </div>
+            </div>""", unsafe_allow_html=True)
 
-    # ── 基準カード（components.htmlでリッチ描画 → クリックでJS発火） ──
-    st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
-
-    cards_html_parts = []
-    for i, card in enumerate(REFERENCE_CARDS):
-        svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
-        cards_html_parts.append(f"""
-        <div class="ref-card" onclick="selectCard({i})" title="{card['color']}・{card['shape']}・{card['number']}">
-            {svg}
-        </div>""")
-
-    cards_block = f"""
-    <style>
-      body {{ margin:0; padding:0; background:transparent; }}
-      .cards-row {{ display:flex; gap:10px; justify-content:center; padding:4px; }}
-      .ref-card {{
-        flex:1; background:#f8fafc; border:2px solid #cbd5e1;
-        border-radius:10px; cursor:pointer;
-        display:flex; justify-content:center; align-items:center;
-        height:120px; transition: border-color .15s, box-shadow .15s, transform .1s;
-        user-select:none;
-      }}
-      .ref-card:hover {{
-        border-color:#60a5fa;
-        box-shadow:0 0 16px rgba(96,165,250,0.7);
-        transform:translateY(-3px);
-      }}
-      .ref-card:active {{ transform:translateY(0); border-color:#2563eb; }}
-    </style>
-    <div class="cards-row">{''.join(cards_html_parts)}</div>
-    <script>
-      function selectCard(i) {{
-        var label = 'WCST_CARD_' + i;
-        var buttons = window.parent.document.querySelectorAll('button');
-        for (var j = 0; j < buttons.length; j++) {{
-          if (buttons[j].innerText.trim() === label) {{
-            buttons[j].click();
-            return;
-          }}
-        }}
-      }}
-    </script>"""
-    components.html(cards_block, height=145)
-
-    st.markdown("<hr style='border-color:#334155; margin:10px 0;'>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # ── ターゲットカード ─────────────────
-    st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】<br><span style='font-size:0.8rem; font-weight:normal; color:#94a3b8;'>上の基準カードを直接タップしてください</span></p>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='text-align:center; color:#fbbf24; font-size:0.9rem; font-weight:bold;'>【分類するカード】</p>",
+        unsafe_allow_html=True
+    )
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
-        svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
-        st.markdown(f'<div style="height:160px; background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; display:flex; justify-content:center; align-items:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
+        c_emoji = COLOR_EMOJI[target["color"]]
+        s_emoji = SHAPE_EMOJI[target["shape"]]
+        st.markdown(f"""
+        <div style="background:#1e293b; border:3px solid #fbbf24;
+                    border-radius:16px; padding:20px; text-align:center;
+                    box-shadow:0 0 20px rgba(251,191,36,0.3);">
+          <div style='font-size:2.8rem;'>{c_emoji}{s_emoji}</div>
+          <div style='font-size:1.2rem; color:#fbbf24;'>{target['number']}個</div>
+          <div style='font-size:0.75rem; color:#78716c;'>
+            {target['color']}・{target['shape']}・{target['number']}
+          </div>
+        </div>""", unsafe_allow_html=True)
 
+    st.markdown(
+        "<p style='text-align:center; color:#94a3b8; margin-top:16px;'>どの基準カードと同じグループですか？</p>",
+        unsafe_allow_html=True
+    )
+
+    # ── 選択ボタン ───────────────────────
+    btn_cols = st.columns(4)
+    for i, (col, card) in enumerate(zip(btn_cols, REFERENCE_CARDS)):
+        with col:
+            c_emoji = COLOR_EMOJI[card["color"]]
+            s_emoji = SHAPE_EMOJI[card["shape"]]
+            st.markdown(f"""
+            <div style="background:#0f172a; border:1px solid #334155;
+                        border-radius:10px; padding:10px; text-align:center; margin-bottom:4px;">
+              <div style='font-size:1.6rem;'>{c_emoji}{s_emoji}</div>
+              <div style='font-size:0.8rem; color:#64748b;'>{card['number']}個</div>
+            </div>""", unsafe_allow_html=True)
+            st.button(
+                f"カード {i+1}",
+                key=f"btn_{trial}_{i}",
+                on_click=on_card_selected,
+                args=(i,),
+                use_container_width=True,
+            )
 
 # ─────────────────────────────────────────
 # 画面③：結果レポート
@@ -312,26 +361,32 @@ def show_test():
 def show_results():
     df = pd.DataFrame(st.session_state["logs"])
 
-    st.markdown("""<h2 style='color:#60a5fa; font-family:"BIZ UDPGothic",sans-serif; margin-bottom:0;'>📊 テスト結果レポート</h2>""", unsafe_allow_html=True)
+    st.markdown("""
+    <h2 style='color:#60a5fa; font-family:"BIZ UDPGothic",sans-serif;'>
+      📊 テスト結果レポート
+    </h2>""", unsafe_allow_html=True)
 
+    # 患者・検査者情報
     p = st.session_state.get("patient_name", "")
     e = st.session_state.get("examiner_name", "")
     if p or e:
         st.markdown(f"**患者名：** {p}　　**検査者：** {e}")
 
+    # ── 総合スコア ───────────────────────
     total_trials    = len(df)
     total_correct   = (df["正誤"] == "○").sum()
     total_errors    = (df["正誤"] == "×").sum()
     categories      = st.session_state["categories_achieved"]
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("総試行数", total_trials)
-    col2.metric("達成カテゴリー", categories)
-    col3.metric("総正解数", total_correct)
-    col4.metric("総エラー数", total_errors)
+    col1.metric("総試行数",           total_trials)
+    col2.metric("達成カテゴリー数",    categories)
+    col3.metric("総正解数",           total_correct)
+    col4.metric("総エラー数",         total_errors)
 
     st.markdown("---")
 
+    # ── エラー種別集計 ─────────────────
     error_df = df[df["正誤"] == "×"]
     error_counts = error_df["エラー種別"].value_counts().reset_index()
     error_counts.columns = ["エラー種別", "回数"]
@@ -340,6 +395,7 @@ def show_results():
 
     with col_left:
         st.subheader("エラー種別の内訳")
+        error_labels_order = ["ミルナー型保続","ネルソン型保続","セット維持困難","非保続性エラー"]
         error_color_map = {
             "ミルナー型保続": "#ef4444",
             "ネルソン型保続": "#f97316",
@@ -353,7 +409,12 @@ def show_results():
             hole=0.4,
             textinfo="label+value+percent",
         ))
-        fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color="#e2e8f0", showlegend=False, margin=dict(t=10,b=10,l=10,r=10))
+        fig_pie.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#e2e8f0",
+            showlegend=False,
+            margin=dict(t=20,b=20,l=20,r=20),
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with col_right:
@@ -366,7 +427,7 @@ def show_results():
         st.markdown(f"""
 | エラー種別 | 回数 | 解釈 |
 |---|---|---|
-| 🔴 ミルナー型保続 | {milner_n}回 | 過去の成功体験からの切り替え困難 |
+| 🔴 ミルナー型保続 | {milner_n}回 | 過去の成功体験からの切り替え困難（前頭葉機能） |
 | 🟠 ネルソン型保続 | {nelson_n}回 | 直前の自分の行動パターンからの脱却困難 |
 | 🟡 セット維持困難 | {ftm_n}回 | 注意維持困難・ルール保持の不安定さ |
 | ⬜ 非保続性エラー | {other_n}回 | 注意逸脱・ワーキングメモリ低下の疑い |
@@ -374,7 +435,41 @@ def show_results():
 
     st.markdown("---")
 
+    # ── 試行ごとの正誤推移グラフ ──────────
+    st.subheader("試行ごとの正誤推移")
+    df_plot = df.copy()
+    df_plot["正誤_数値"] = df_plot["正誤"].map({"○": 1, "×": 0})
+    # 10試行ごとの正解率
+    df_plot["ブロック"] = ((df_plot["試行"] - 1) // 10) * 10 + 5
+    block_summary = df_plot.groupby("ブロック")["正誤_数値"].mean().reset_index()
+    block_summary.columns = ["試行（中点）", "正解率"]
+
+    fig_line = go.Figure()
+    fig_line.add_trace(go.Scatter(
+        x=block_summary["試行（中点）"],
+        y=block_summary["正解率"],
+        mode="lines+markers",
+        line=dict(color="#60a5fa", width=2),
+        marker=dict(size=8),
+        fill="tozeroy",
+        fillcolor="rgba(96,165,250,0.1)",
+    ))
+    fig_line.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,23,42,0.8)",
+        font_color="#e2e8f0",
+        yaxis=dict(title="正解率", range=[0,1], tickformat=".0%",
+                   gridcolor="#1e293b"),
+        xaxis=dict(title="試行番号", gridcolor="#1e293b"),
+        margin=dict(t=20,b=40,l=60,r=20),
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
+
+    st.markdown("---")
+
+    # ── 全試行履歴テーブル ───────────────
     st.subheader("全試行の詳細ログ")
+
     def highlight_errors(row):
         if row["正誤"] == "○":
             return ["background-color: rgba(34,197,94,0.1)"] * len(row)
@@ -389,77 +484,55 @@ def show_results():
             return [f"background-color: {color}"] * len(row)
 
     styled_df = df.style.apply(highlight_errors, axis=1)
-    st.dataframe(styled_df, use_container_width=True, height=300)
+    st.dataframe(styled_df, use_container_width=True, height=400)
 
+    # CSVダウンロード
     csv = df.to_csv(index=False, encoding="utf-8-sig")
     st.download_button(
         label="📥 結果をCSVでダウンロード",
         data=csv,
-        file_name=f"cst_result_{p or 'patient'}.csv",
+        file_name=f"wcst_result_{p or 'patient'}.csv",
         mime="text/csv",
-        type="primary"  # CSSハックの影響を受けないように指定
     )
 
     st.markdown("---")
-    if st.button("🔄 テストをリセットして最初から", type="primary", use_container_width=True):
-        reset_test()
-        st.rerun()
+    st.button("🔄 テストをリセットして最初から", type="secondary",
+              use_container_width=True, on_click=reset_test)
+
 
 # ─────────────────────────────────────────
 # メイン
 # ─────────────────────────────────────────
 def main():
     st.set_page_config(
-        page_title="Card Sorting Task",
+        page_title="WCST 臨床評価ツール",
         page_icon="🧠",
         layout="centered",
         initial_sidebar_state="collapsed",
     )
 
+    # ダークテーマ調整CSS
     st.markdown("""
     <style>
-    /* ヘッダーとフッターを消す */
-    header {visibility: hidden !important;}
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    
-    /* 余白を削る */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
-        max-width: 800px;
-    }
-
-    /* 全体のダークテーマ */
     .stApp { background-color: #0f172a; color: #e2e8f0; }
-
-    /* primaryボタン（スタート・リセット等の青いボタン）のデザイン */
-    button[kind="primary"] {
-        background-color: #1e40af !important;
-        color: white !important;
-        border: 1px solid #3b82f6 !important;
-        border-radius: 8px !important;
-        transition: all 0.2s !important;
-        padding: 10px 0 !important;
-        font-size: 1rem !important;
-        font-weight: bold !important;
+    .stButton > button {
+        background-color: #1e40af;
+        color: white;
+        border: 1px solid #3b82f6;
+        border-radius: 8px;
+        transition: all 0.2s;
     }
-    button[kind="primary"]:hover {
-        background-color: #2563eb !important;
-        border-color: #60a5fa !important;
+    .stButton > button:hover {
+        background-color: #2563eb;
+        border-color: #60a5fa;
     }
-
-    /* ＝＝ 隠しボタン（WCST_CARD_0〜3）を画面外へ追い出す ＝＝
-       DOMには残るのでJavaScriptから.click()は可能 */
-    button[kind="secondary"] {
-        position: fixed !important;
-        top: -9999px !important;
-        left: -9999px !important;
-        width: 1px !important;
-        height: 1px !important;
-        overflow: hidden !important;
-        opacity: 0.001 !important;   /* 0にするとブラウザ依存でclick()無効になる場合があるため0.001 */
+    [data-testid="metric-container"] {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 12px;
     }
+    .stDataFrame { border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -471,6 +544,7 @@ def main():
         show_results()
     else:
         show_test()
+
 
 if __name__ == "__main__":
     main()
