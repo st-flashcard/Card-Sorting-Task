@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ版・アクセス制限機能付き)
+Streamlit版 臨床評価ツール (新ドメイン対応・アクセス制限機能付き)
 """
 
 import streamlit as st
@@ -31,7 +31,8 @@ REFERENCE_CARDS = [
     {"color": "青",  "shape": "丸",   "number": "4"},
 ]
 
-BLOG_URL = "https://dementia-stroke-st.blogspot.com/"
+# ★★★ ここを新しいドメインに変更しました ★★★
+BLOG_URL = "https://dementia-stroke-st.com/"
 
 # ─────────────────────────────────────────
 # 図形（SVG）描画ジェネレーター
