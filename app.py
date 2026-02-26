@@ -4,9 +4,9 @@ Streamlit版 臨床評価ツール (直接クリック 確実オーバーレイ�
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
-import base64
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -69,35 +69,6 @@ def generate_card_svg(color_name, shape_name, number_str, size="normal"):
     max_w = "60px" if size == "small" else "110px"
     
     return f'<div style="display:flex; justify-content:center; align-items:center; width:100%; margin:4px 0;"><svg viewBox="0 0 200 200" style="width:100%; max-width:{max_w}; height:auto;">{items}</svg></div>'
-
-def generate_card_svg_b64(color_name, shape_name, number_str):
-    """
-    SVGをbase64エンコードしてCSSのbackground-imageに使えるdata URIを返す。
-    components.html+JSを使わずにiOSでも動くカードボタンを実現するため。
-    """
-    color_map = {"赤": "#ef4444", "緑": "#22c55e", "黄": "#eab308", "青": "#3b82f6"}
-    c = color_map.get(color_name, "#ffffff")
-
-    if shape_name == "丸":
-        shape_svg = f'<circle cx="40" cy="40" r="35" fill="{c}"/>'
-    elif shape_name == "三角":
-        shape_svg = f'<polygon points="40,5 75,75 5,75" fill="{c}"/>'
-    elif shape_name == "十字":
-        shape_svg = f'<polygon points="25,5 55,5 55,25 75,25 75,55 55,55 55,75 25,75 25,55 5,55 5,25 25,25" fill="{c}"/>'
-    elif shape_name == "星":
-        shape_svg = f'<polygon points="40,2 52,27 79,31 59,50 65,77 40,63 15,77 21,50 1,31 28,27" fill="{c}"/>'
-    else:
-        shape_svg = ""
-
-    n = int(number_str)
-    positions = {1: [(60,60)], 2: [(60,10),(60,110)],
-                 3: [(60,10),(10,110),(110,110)], 4: [(15,15),(105,15),(15,105),(105,105)]}
-    items = "".join(f'<g transform="translate({x},{y})">{shape_svg}</g>'
-                    for x, y in positions.get(n, []))
-
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">{items}</svg>'
-    b64 = base64.b64encode(svg.encode("utf-8")).decode("utf-8")
-    return f"data:image/svg+xml;base64,{b64}"
 
 # ─────────────────────────────────────────
 # 初期化
@@ -228,10 +199,6 @@ def _error_label(error_type):
     }
     return mapping.get(error_type, "非保続性エラー")
 
-def start_test():
-    st.session_state["started"] = True
-    st.session_state["target_card"] = generate_target()
-
 # ─────────────────────────────────────────
 # 画面①：スタート画面
 # ─────────────────────────────────────────
@@ -257,21 +224,19 @@ def show_start():
                 <p style="margin:0; font-size:0.9rem;">✔️ 連続正解で達成：<b>{REQUIRED_CORRECT}</b> 回</p>
             </div>
             """, unsafe_allow_html=True)
-            st.button("🚀 テストを開始する", type="primary",
-                      use_container_width=True, on_click=start_test)
+            if st.button("🚀 テストを開始する", type="primary", use_container_width=True):
+                st.session_state["started"] = True
+                st.session_state["target_card"] = generate_target()
+                st.rerun()
 
 # ─────────────────────────────────────────
 # 画面②：テスト実施画面
 # ─────────────────────────────────────────
 def show_test():
-    target = st.session_state.get("target_card")
-    # 安全ガード（iOSでsession_stateが一瞬Noneになる場合）
-    if target is None:
-        st.session_state["target_card"] = generate_target()
-        target = st.session_state["target_card"]
-    trial = st.session_state["trial_num"]
+    target = st.session_state["target_card"]
+    trial  = st.session_state["trial_num"]
 
-    # ── フィードバック ──
+    # フィードバック表示
     fb = st.session_state.get("feedback")
     if fb == "correct":
         st.markdown('<div style="background-color:rgba(34,197,94,0.2); color:#4ade80; padding:8px; border-radius:8px; text-align:center; font-weight:bold; margin-bottom:10px;">✅ 正解！</div>', unsafe_allow_html=True)
@@ -280,79 +245,66 @@ def show_test():
     else:
         st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
+    # ── 隠しボタン ──
+    hcols = st.columns(4)
+    for i, col in enumerate(hcols):
+        with col:
+            if st.button(f"CST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
+                on_card_selected(i)
+                st.rerun()
+
     # ── 基準カード ──
     st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
 
-    # ── iOS対応カード選択ボタン ──────────────────────────────────────
-    # components.html + window.parent.document.querySelectorAll は
-    # iOS SafariのiFrameセキュリティ制限でブロックされるため完全廃止。
-    # SVGをbase64エンコードしてCSSのbackground-imageに埋め込む方式に変更。
-    # これによりJSゼロ・クロスフレーム通信ゼロで、iOSでも確実に動作する。
-    # ────────────────────────────────────────────────────────────────
+    cards_html_parts = []
+    for i, card in enumerate(REFERENCE_CARDS):
+        svg = generate_card_svg(card["color"], card["shape"], card["number"], size="small")
+        cards_html_parts.append(f"""
+        <div class="ref-card" onclick="selectCard({i})" title="{card['color']}・{card['shape']}・{card['number']}">
+            {svg}
+        </div>""")
 
-    ref_cols = st.columns(4)
-    for i, (col, card) in enumerate(zip(ref_cols, REFERENCE_CARDS)):
-        with col:
-            data_uri = generate_card_svg_b64(card["color"], card["shape"], card["number"])
-            # 各ボタンをカード見た目にするCSS（nth-child で個別指定）
-            st.markdown(f"""
-            <style>
-            div[data-testid="stHorizontalBlock"]
-              div[data-testid="column"]:nth-child({i+1})
-              button {{
-                background-color: #f8fafc !important;
-                background-image: url("{data_uri}") !important;
-                background-size: 62% !important;
-                background-repeat: no-repeat !important;
-                background-position: center 42% !important;
-                border: 2px solid #cbd5e1 !important;
-                border-radius: 10px !important;
-                height: 120px !important;
-                min-height: 120px !important;
-                color: transparent !important;
-                font-size: 0 !important;
-                /* iOS必須設定 */
-                touch-action: manipulation !important;
-                -webkit-tap-highlight-color: transparent !important;
-                -webkit-user-select: none !important;
-                user-select: none !important;
-                /* transition:all はiOSでタップを無効化するバグがあるため個別指定 */
-                transition: border-color 0.15s, box-shadow 0.15s !important;
-                cursor: pointer !important;
-            }}
-            div[data-testid="stHorizontalBlock"]
-              div[data-testid="column"]:nth-child({i+1})
-              button:hover {{
-                border-color: #60a5fa !important;
-                box-shadow: 0 0 16px rgba(96,165,250,0.6) !important;
-            }}
-            div[data-testid="stHorizontalBlock"]
-              div[data-testid="column"]:nth-child({i+1})
-              button:active {{
-                border-color: #2563eb !important;
-                transform: scale(0.96) !important;
-            }}
-            </style>
-            """, unsafe_allow_html=True)
-
-            # on_click方式のネイティブStreamlitボタン（iOSで確実動作）
-            st.button(
-                " ",
-                key=f"card_{trial}_{i}",
-                on_click=on_card_selected,
-                args=(i,),
-                use_container_width=True,
-            )
+    cards_block = f"""
+    <style>
+      body {{ margin:0; padding:0; background:transparent; }}
+      .cards-row {{ display:flex; gap:10px; justify-content:center; padding:4px; }}
+      .ref-card {{
+        flex:1; background:#f8fafc; border:2px solid #cbd5e1;
+        border-radius:10px; cursor:pointer;
+        display:flex; justify-content:center; align-items:center;
+        height:120px; transition: border-color .15s, box-shadow .15s, transform .1s;
+        user-select:none;
+      }}
+      .ref-card:hover {{
+        border-color:#60a5fa;
+        box-shadow:0 0 16px rgba(96,165,250,0.7);
+        transform:translateY(-3px);
+      }}
+      .ref-card:active {{ transform:translateY(0); border-color:#2563eb; }}
+    </style>
+    <div class="cards-row">{''.join(cards_html_parts)}</div>
+    <script>
+      function selectCard(i) {{
+        var label = 'CST_CARD_' + i;
+        var buttons = window.parent.document.querySelectorAll('button');
+        for (var j = 0; j < buttons.length; j++) {{
+          if (buttons[j].innerText.trim() === label) {{
+            buttons[j].click();
+            return;
+          }}
+        }}
+      }}
+    </script>"""
+    components.html(cards_block, height=145)
 
     st.markdown("<hr style='border-color:#334155; margin:10px 0;'>", unsafe_allow_html=True)
 
-    # ── ターゲットカード ──
+    # ── ターゲットカード ─────────────────
     st.markdown("<p style='text-align:center; color:#fbbf24; font-size:1rem; font-weight:bold;'>【今から分類するカード】<br><span style='font-size:0.8rem; font-weight:normal; color:#94a3b8;'>上の基準カードを直接タップしてください</span></p>", unsafe_allow_html=True)
     _, tc_col, _ = st.columns([1.5, 1, 1.5])
     with tc_col:
         svg_html = generate_card_svg(target["color"], target["shape"], target["number"], size="large")
         st.markdown(f'<div style="height:160px; background:#f8fafc; border:4px solid #fbbf24; border-radius:12px; display:flex; justify-content:center; align-items:center; box-shadow:0 0 15px rgba(251,191,36,0.3);">{svg_html}</div>', unsafe_allow_html=True)
-
 
 
 # ─────────────────────────────────────────
@@ -450,8 +402,9 @@ def show_results():
     )
 
     st.markdown("---")
-    st.button("🔄 テストをリセットして最初から", type="primary",
-              use_container_width=True, on_click=reset_test)
+    if st.button("🔄 テストをリセットして最初から", type="primary", use_container_width=True):
+        reset_test()
+        st.rerun()
 
 # ─────────────────────────────────────────
 # ブロック画面（ブログ経由以外のアクセスを弾く）
@@ -521,17 +474,13 @@ def main():
     /* 全体のダークテーマ */
     .stApp { background-color: #0f172a; color: #e2e8f0; }
 
-    /* primaryボタン（スタート・リセット等） */
+    /* primaryボタン（スタート・リセット等の青いボタン）のデザイン */
     button[kind="primary"] {
         background-color: #1e40af !important;
         color: white !important;
         border: 1px solid #3b82f6 !important;
         border-radius: 8px !important;
-        /* iOS修正: transition:all はタップ無効化バグがあるため個別指定 */
-        transition: background-color 0.2s, border-color 0.2s !important;
-        /* iOS必須 */
-        touch-action: manipulation !important;
-        -webkit-tap-highlight-color: transparent !important;
+        transition: all 0.2s !important;
         padding: 10px 0 !important;
         font-size: 1rem !important;
         font-weight: bold !important;
@@ -539,6 +488,17 @@ def main():
     button[kind="primary"]:hover {
         background-color: #2563eb !important;
         border-color: #60a5fa !important;
+    }
+
+    /* 隠しボタンを画面外へ */
+    button[kind="secondary"] {
+        position: fixed !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 1px !important;
+        height: 1px !important;
+        overflow: hidden !important;
+        opacity: 0.001 !important; 
     }
     </style>
     """, unsafe_allow_html=True)
