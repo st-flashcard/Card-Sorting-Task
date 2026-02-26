@@ -200,6 +200,10 @@ def _error_label(error_type):
     }
     return mapping.get(error_type, "非保続性エラー")
 
+def start_test():
+    st.session_state["started"] = True
+    st.session_state["target_card"] = generate_target()
+
 # ─────────────────────────────────────────
 # 画面①：スタート画面
 # ─────────────────────────────────────────
@@ -225,16 +229,17 @@ def show_start():
                 <p style="margin:0; font-size:0.9rem;">✔️ 連続正解で達成：<b>{REQUIRED_CORRECT}</b> 回</p>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("🚀 テストを開始する", type="primary", use_container_width=True):
-                st.session_state["started"] = True
-                st.session_state["target_card"] = generate_target()
-                st.rerun()
+            st.button("🚀 テストを開始する", type="primary",
+                      use_container_width=True, on_click=start_test)
 
 # ─────────────────────────────────────────
 # 画面②：テスト実施画面
 # ─────────────────────────────────────────
 def show_test():
-    target = st.session_state["target_card"]
+    target = st.session_state.get("target_card")
+    if target is None:
+        st.session_state["target_card"] = generate_target()
+        target = st.session_state["target_card"]
     trial  = st.session_state["trial_num"]
 
     # フィードバック表示
@@ -246,13 +251,16 @@ def show_test():
     else:
         st.markdown('<div style="padding:8px; margin-bottom:10px;">&nbsp;</div>', unsafe_allow_html=True)
 
-    # ── 隠しボタン ──
+    # ── 隠しボタン（on_click方式・iOS対応）──
     hcols = st.columns(4)
     for i, col in enumerate(hcols):
         with col:
-            if st.button(f"CST_CARD_{i}", key=f"hbtn_{trial}_{i}"):
-                on_card_selected(i)
-                st.rerun()
+            st.button(
+                f"CST_CARD_{i}",
+                key=f"hbtn_{trial}_{i}",
+                on_click=on_card_selected,
+                args=(i,),
+            )
 
     # ── 基準カード ──
     st.markdown("<p style='text-align:center; color:#94a3b8; font-size:1rem; font-weight:bold; margin-top:4px;'>【基準カード】</p>", unsafe_allow_html=True)
@@ -403,9 +411,8 @@ def show_results():
     )
 
     st.markdown("---")
-    if st.button("🔄 テストをリセットして最初から", type="primary", use_container_width=True):
-        reset_test()
-        st.rerun()
+    st.button("🔄 テストをリセットして最初から", type="primary",
+              use_container_width=True, on_click=reset_test)
 
 # ─────────────────────────────────────────
 # ブロック画面（ブログ経由以外のアクセスを弾く）
@@ -476,13 +483,16 @@ def main():
     /* 全体のダークテーマ */
     .stApp { background-color: #0f172a; color: #e2e8f0; }
 
-    /* primaryボタン（スタート・リセット等の青いボタン）のデザイン */
+    /* primaryボタン（スタート・リセット等） */
     button[kind="primary"] {
         background-color: #1e40af !important;
         color: white !important;
         border: 1px solid #3b82f6 !important;
         border-radius: 8px !important;
-        transition: all 0.2s !important;
+        /* iOS修正: transition:all はタップ無効化バグがあるため個別指定 */
+        transition: background-color 0.2s, border-color 0.2s !important;
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
         padding: 10px 0 !important;
         font-size: 1rem !important;
         font-weight: bold !important;
@@ -492,15 +502,18 @@ def main():
         border-color: #60a5fa !important;
     }
 
-    /* 隠しボタンを画面外へ */
+    /* 隠しボタン: iOSで .click() が効く「視覚的に隠す」方式
+       position:fixed; top:-9999px はiOSで .click() が効かないため使用禁止 */
     button[kind="secondary"] {
-        position: fixed !important;
-        top: -9999px !important;
-        left: -9999px !important;
-        width: 1px !important;
+        position: absolute !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
         height: 1px !important;
+        width: 1px !important;
         overflow: hidden !important;
-        opacity: 0.001 !important; 
+        white-space: nowrap !important;
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
     }
     </style>
     """, unsafe_allow_html=True)
