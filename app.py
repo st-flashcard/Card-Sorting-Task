@@ -1,6 +1,6 @@
 """
 Card Sorting Task
-Streamlit版 臨床評価ツール (新ドメイン・新ブログ名対応)
+Streamlit版 臨床評価ツール (アクセス制限なし・確実起動Ver.)
 """
 
 import streamlit as st
@@ -29,9 +29,6 @@ REFERENCE_CARDS = [
     {"color": "黄",  "shape": "十字", "number": "3"},
     {"color": "青",  "shape": "丸",   "number": "4"},
 ]
-
-# ★ 新しいドメインに変更
-BLOG_URL = "https://dementia-stroke-st.com/"
 
 # ─────────────────────────────────────────
 # 図形（SVG）描画ジェネレーター
@@ -122,54 +119,10 @@ def on_card_selected(ref_index: int):
         st.session_state["finished"] = True
 
 # ─────────────────────────────────────────
-# ブロック画面（ブログ経由以外のアクセスを弾く）
-# ─────────────────────────────────────────
-def show_block_screen():
-    # ★ 新しいブログ名とURLに変更しました
-    html_content = f"""
-    <div style="min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div style="background-color: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-width: 500px; width: 100%; text-align: center; border: 4px solid #ffedd5;">
-            <div style="font-size: 60px; margin-bottom: 20px; animation: bounce 2s infinite;">🏠</div>
-            <h1 style="color: #1f2937; font-size: 1.5rem; font-weight: bold; margin-bottom: 15px; line-height: 1.4;">
-                こんにちは！<br/>
-                <span style="color: #4f46e5; font-size: 1.2rem;">STのリハビリ開発室<br/>｜自作アプリとプリント教材</span>です
-            </h1>
-            <p style="color: #4b5563; margin-bottom: 30px; line-height: 1.6;">
-                アクセスありがとうございます。<br/>
-                このツールは、ブログ読者様限定で公開しています。
-            </p>
-            <a href="{BLOG_URL}" style="display: block; width: 100%; background: linear-gradient(to right, #6366f1, #9333ea); color: white; font-weight: bold; padding: 15px 20px; border-radius: 9999px; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.3s;">
-                ブログの記事に戻る
-            </a>
-        </div>
-    </div>
-    <style>
-        @keyframes bounce {{
-            0%, 100% {{ transform: translateY(-5%); animation-timing-function: cubic-bezier(0.8,0,1,1); }}
-            50% {{ transform: none; animation-timing-function: cubic-bezier(0,0,0.2,1); }}
-        }}
-    </style>
-    """
-    st.markdown(html_content, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────
 # メイン画面
 # ─────────────────────────────────────────
 def main():
-    st.set_page_config(page_title="Card Sorting Task", layout="centered")
-
-    # ★ どんなバージョンでも安全にURLを読み取る書き方
-    query_val = ""
-    try:
-        query_val = st.query_params.get("from", "")
-    except:
-        query_val = st.experimental_get_query_params().get("from", [""])[0]
-
-    # 合言葉「blog」がない場合はブロック画面を出して終了
-    if query_val != "blog":
-        st.markdown("<style>header {visibility: hidden;} footer {visibility: hidden;}</style>", unsafe_allow_html=True)
-        show_block_screen()
-        return
+    st.set_page_config(page_title="Card Sorting Task", layout="centered", page_icon="🧠")
 
     init_state()
 
